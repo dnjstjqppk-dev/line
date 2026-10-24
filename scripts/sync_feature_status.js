@@ -29,3 +29,4 @@ for (let rawLine of lines) {
 const csvHeader = 'requirement_id,phase,feature,implementation_status,implemented_scope_or_gap,schema_or_proto_notes\n';
 fs.writeFileSync('docs/FEATURE_STATUS_001_100.csv', csvHeader + rows.join('\n') + '\n', 'utf-8');
 console.log(`Updated docs/FEATURE_STATUS_001_100.csv with ${rows.length} rows`);
+

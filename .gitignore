@@ -3,6 +3,8 @@
 node_modules/
 **/node_modules/
 **/dist/
+dist_cf/
+.wrangler/
 **/build/
 .dart_tool/
 .flutter-plugins*
