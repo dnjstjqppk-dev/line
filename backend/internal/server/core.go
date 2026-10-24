@@ -96,8 +96,31 @@ func New(cfg Config) (*App, error) {
 				}
 			}
 		}
+		seedDefaultAccounts(ctx, db)
 	}
 	return &App{db: db, cfg: cfg, hub: realtime.New()}, nil
+}
+
+func seedDefaultAccounts(ctx context.Context, db *sql.DB) {
+	seeds := []struct {
+		Email       string
+		Password    string
+		DisplayName string
+		Role        string
+		Handle      string
+	}{
+		{"admin@line.local", "LineAdmin#2026!", "System Administrator", "admin", "line_admin"},
+		{"user@line.local", "LineUser#2026!", "LINE Demo User", "user", "line_user"},
+	}
+	for _, s := range seeds {
+		hash, err := auth.HashPassword(s.Password)
+		if err != nil {
+			continue
+		}
+		_, _ = db.ExecContext(ctx,
+			"INSERT INTO identity.users(email,password_hash,display_name,role,handle,state) VALUES ($1,$2,$3,$4,$5,'active') ON CONFLICT DO NOTHING",
+			s.Email, hash, s.DisplayName, s.Role, s.Handle)
+	}
 }
 
 func (a *App) Close() { _ = a.db.Close() }
