@@ -2,9 +2,11 @@ package server
 
 import (
 	"database/sql"
-	"github.com/example/global-messenger/backend/internal/auth"
+	"encoding/json"
 	"net/http"
 	"strings"
+
+	"github.com/example/global-messenger/backend/internal/auth"
 )
 
 func (a *App) advertisers(w http.ResponseWriter, r *http.Request) {
@@ -24,6 +26,7 @@ func (a *App) advertisers(w http.ResponseWriter, r *http.Request) {
 	}
 	send(w, 200, map[string]any{"advertisers": result})
 }
+
 func (a *App) createAdvertiser(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		OrganizationID string `json:"organization_id"`
@@ -45,6 +48,7 @@ func (a *App) createAdvertiser(w http.ResponseWriter, r *http.Request) {
 	}
 	send(w, 201, map[string]string{"id": id, "name": in.Name, "status": "pending"})
 }
+
 func (a *App) adsCampaigns(w http.ResponseWriter, r *http.Request) {
 	rows, e := a.db.QueryContext(r.Context(), `SELECT c.id,c.name,c.status,c.daily_budget_minor,c.currency FROM ads.campaigns c
  JOIN ads.advertisers a ON a.id=c.advertiser_id JOIN business.memberships m ON m.organization_id=a.organization_id
@@ -64,6 +68,7 @@ func (a *App) adsCampaigns(w http.ResponseWriter, r *http.Request) {
 	}
 	send(w, 200, map[string]any{"campaigns": result})
 }
+
 func (a *App) createAdsCampaign(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		AdvertiserID     string `json:"advertiser_id"`
@@ -101,4 +106,31 @@ func (a *App) createAdsCampaign(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	send(w, 201, map[string]string{"id": id, "status": "draft"})
+}
+
+func (a *App) createAdGroup(w http.ResponseWriter, r *http.Request) {
+	campID := r.PathValue("id")
+	if !auth.ValidUUID(campID) {
+		fail(w, 400, "invalid campaign id")
+		return
+	}
+	var in struct {
+		Name      string         `json:"name"`
+		Targeting map[string]any `json:"targeting"`
+		BidMinor  int64          `json:"bid_minor"`
+	}
+	if decode(r, &in) != nil || len(strings.TrimSpace(in.Name)) < 2 || in.BidMinor < 0 {
+		fail(w, 400, "invalid ad group")
+		return
+	}
+	tBytes, _ := json.Marshal(in.Targeting)
+	var id string
+	e := a.db.QueryRowContext(r.Context(),
+		"INSERT INTO ads.ad_groups(campaign_id,name,targeting,bid_minor) VALUES ($1,$2,$3,$4) RETURNING id",
+		campID, in.Name, string(tBytes), in.BidMinor).Scan(&id)
+	if e != nil {
+		fail(w, 500, "ad group creation failed")
+		return
+	}
+	send(w, 201, map[string]any{"id": id, "campaign_id": campID, "name": in.Name})
 }

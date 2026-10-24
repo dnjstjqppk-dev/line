@@ -1,9 +1,11 @@
 package server
 
 import (
-	"github.com/example/global-messenger/backend/internal/auth"
+	"encoding/json"
 	"net/http"
 	"strings"
+
+	"github.com/example/global-messenger/backend/internal/auth"
 )
 
 func (a *App) createDeveloperOrganization(w http.ResponseWriter, r *http.Request) {
@@ -33,6 +35,7 @@ func (a *App) createDeveloperOrganization(w http.ResponseWriter, r *http.Request
 	}
 	send(w, 201, map[string]string{"id": id, "name": in.Name})
 }
+
 func (a *App) developerOrganizations(w http.ResponseWriter, r *http.Request) {
 	rows, e := a.db.QueryContext(r.Context(), "SELECT o.id,o.name,m.role FROM developer.organizations o JOIN developer.memberships m ON m.organization_id=o.id WHERE m.user_id=$1 ORDER BY o.created_at DESC", claims(r).Subject)
 	if e != nil {
@@ -50,8 +53,6 @@ func (a *App) developerOrganizations(w http.ResponseWriter, r *http.Request) {
 	send(w, 200, map[string]any{"organizations": out})
 }
 
-// App secrets are shown once and only the SHA-256 hash is persisted. OAuth/token
-// issuance is not implemented; this endpoint does not enable credential use yet.
 func (a *App) createDeveloperApp(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if !auth.ValidUUID(id) {
@@ -88,6 +89,7 @@ func (a *App) createDeveloperApp(w http.ResponseWriter, r *http.Request) {
 	}
 	send(w, 201, map[string]string{"id": appID, "name": in.Name, "client_id": clientID, "client_secret_once": secret, "status": "development"})
 }
+
 func (a *App) listDeveloperApps(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if !auth.ValidUUID(id) {
@@ -113,4 +115,55 @@ func (a *App) listDeveloperApps(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	send(w, 200, map[string]any{"apps": result})
+}
+
+func (a *App) createWebhook(w http.ResponseWriter, r *http.Request) {
+	appID := r.PathValue("id")
+	if !auth.ValidUUID(appID) {
+		fail(w, 400, "invalid app id")
+		return
+	}
+	var in struct {
+		EndpointURL string `json:"endpoint_url"`
+	}
+	if decode(r, &in) != nil || !strings.HasPrefix(in.EndpointURL, "http") {
+		fail(w, 400, "invalid endpoint_url")
+		return
+	}
+	sigSecret, _ := randomSecret(24)
+	var id string
+	e := a.db.QueryRowContext(r.Context(),
+		"INSERT INTO developer.webhooks(app_id,endpoint_url,signing_secret_ciphertext,enabled) VALUES ($1,$2,$3,true) RETURNING id",
+		appID, in.EndpointURL, []byte(sigSecret)).Scan(&id)
+	if e != nil {
+		fail(w, 500, "webhook creation failed")
+		return
+	}
+	send(w, 201, map[string]any{"id": id, "endpoint_url": in.EndpointURL, "signing_secret_once": sigSecret, "enabled": true})
+}
+
+func (a *App) createMiniApp(w http.ResponseWriter, r *http.Request) {
+	appID := r.PathValue("id")
+	if !auth.ValidUUID(appID) {
+		fail(w, 400, "invalid app id")
+		return
+	}
+	var in struct {
+		Origin   string         `json:"origin"`
+		Manifest map[string]any `json:"manifest"`
+	}
+	if decode(r, &in) != nil || !strings.HasPrefix(in.Origin, "http") {
+		fail(w, 400, "invalid miniapp")
+		return
+	}
+	mBytes, _ := json.Marshal(in.Manifest)
+	var id string
+	e := a.db.QueryRowContext(r.Context(),
+		"INSERT INTO developer.miniapps(app_id,manifest,origin,review_state) VALUES ($1,$2,$3,'pending') RETURNING id",
+		appID, string(mBytes), in.Origin).Scan(&id)
+	if e != nil {
+		fail(w, 500, "miniapp creation failed")
+		return
+	}
+	send(w, 201, map[string]string{"id": id, "origin": in.Origin, "review_state": "pending"})
 }

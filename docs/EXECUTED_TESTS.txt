@@ -1,7 +1,25 @@
-?   	github.com/example/global-messenger/backend/internal/realtime	[no test files]
+=== Go Backend Unit, Schema & Full 12-Scenario E2E Test Suite ===
+?   	github.com/example/global-messenger/backend/cmd/server	[no test files]
 === RUN   TestPassword
---- PASS: TestPassword (0.17s)
+--- PASS: TestPassword (0.15s)
 === RUN   TestJWT
 --- PASS: TestJWT (0.00s)
 PASS
-ok  	github.com/example/global-messenger/backend/internal/auth	0.174s
+ok  	github.com/example/global-messenger/backend/internal/auth	0.748s
+=== RUN   TestApplyAllPhasesSchema
+--- PASS: TestApplyAllPhasesSchema (0.02s)
+PASS
+ok  	github.com/example/global-messenger/backend/internal/db	1.343s
+?   	github.com/example/global-messenger/backend/internal/realtime	[no test files]
+=== RUN   TestFullMessenger12CriticalE2EScenariosAndAllDomains
+--- PASS: TestFullMessenger12CriticalE2EScenariosAndAllDomains (0.24s)
+PASS
+ok  	github.com/example/global-messenger/backend/internal/server	3.299s
+
+=== Vue 3 + TypeScript Monorepo Production Builds (6 Workspaces) ===
+> @messenger/user-web@0.1.0 build: vue-tsc --noEmit && vite build -> PASS
+> @messenger/admin-console@0.1.0 build: vue-tsc --noEmit && vite build -> PASS
+> @messenger/partner-console@0.1.0 build: vue-tsc --noEmit && vite build -> PASS
+> @messenger/developer-console@0.1.0 build: vue-tsc --noEmit && vite build -> PASS
+> @messenger/creator-console@0.1.0 build: vue-tsc --noEmit && vite build -> PASS
+> @messenger/ads-console@0.1.0 build: vue-tsc --noEmit && vite build -> PASS

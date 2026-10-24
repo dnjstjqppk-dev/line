@@ -1,9 +1,11 @@
 package server
 
 import (
-	"github.com/example/global-messenger/backend/internal/auth"
+	"encoding/json"
 	"net/http"
 	"strings"
+
+	"github.com/example/global-messenger/backend/internal/auth"
 )
 
 func (a *App) createOrganization(w http.ResponseWriter, r *http.Request) {
@@ -35,6 +37,7 @@ func (a *App) createOrganization(w http.ResponseWriter, r *http.Request) {
 	}
 	send(w, 201, map[string]string{"id": id, "name": in.Name})
 }
+
 func (a *App) organizations(w http.ResponseWriter, r *http.Request) {
 	rows, e := a.db.QueryContext(r.Context(), `SELECT o.id,o.name,o.verification_state,m.role
  FROM business.organizations o JOIN business.memberships m ON m.organization_id=o.id
@@ -53,6 +56,7 @@ func (a *App) organizations(w http.ResponseWriter, r *http.Request) {
 	}
 	send(w, 200, map[string]any{"organizations": result})
 }
+
 func (a *App) hasOrgRole(r *http.Request, id string, allowed ...string) bool {
 	if !auth.ValidUUID(id) {
 		return false
@@ -68,6 +72,18 @@ func (a *App) hasOrgRole(r *http.Request, id string, allowed ...string) bool {
 	}
 	return false
 }
+
+func (a *App) hasAccountRole(r *http.Request, accountID string, allowed ...string) bool {
+	if !auth.ValidUUID(accountID) {
+		return false
+	}
+	var orgID string
+	if e := a.db.QueryRowContext(r.Context(), "SELECT organization_id FROM business.official_accounts WHERE id=$1", accountID).Scan(&orgID); e != nil {
+		return false
+	}
+	return a.hasOrgRole(r, orgID, allowed...)
+}
+
 func (a *App) createOfficialAccount(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if !a.hasOrgRole(r, id, "owner", "admin") {
@@ -90,6 +106,7 @@ func (a *App) createOfficialAccount(w http.ResponseWriter, r *http.Request) {
 	}
 	send(w, 201, map[string]string{"id": accountID, "status": "pending", "name": in.Name})
 }
+
 func (a *App) officialAccounts(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if !a.hasOrgRole(r, id, "owner", "admin", "agent", "analyst", "billing") {
@@ -110,4 +127,167 @@ func (a *App) officialAccounts(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	send(w, 200, map[string]any{"accounts": result})
+}
+
+func (a *App) addBusinessContact(w http.ResponseWriter, r *http.Request) {
+	accID := r.PathValue("id")
+	if !a.hasAccountRole(r, accID, "owner", "admin", "agent") {
+		fail(w, 403, "account forbidden")
+		return
+	}
+	var in struct {
+		UserID  string   `json:"user_id"`
+		OptedIn bool     `json:"opted_in"`
+		Tags    []string `json:"tags"`
+	}
+	if decode(r, &in) != nil || !auth.ValidUUID(in.UserID) {
+		fail(w, 400, "invalid contact")
+		return
+	}
+	tagsBytes, _ := json.Marshal(in.Tags)
+	var id string
+	e := a.db.QueryRowContext(r.Context(),
+		`INSERT INTO business.contacts(official_account_id,user_id,opted_in,tags) VALUES ($1,$2,$3,$4)
+		 ON CONFLICT(official_account_id,user_id) DO UPDATE SET opted_in=$3,tags=$4 RETURNING id`,
+		accID, in.UserID, in.OptedIn, string(tagsBytes)).Scan(&id)
+	if e != nil {
+		fail(w, 500, "contact save failed")
+		return
+	}
+	send(w, 201, map[string]any{"id": id, "user_id": in.UserID, "opted_in": in.OptedIn})
+}
+
+func (a *App) createSupportTicket(w http.ResponseWriter, r *http.Request) {
+	accID := r.PathValue("id")
+	if !a.hasAccountRole(r, accID, "owner", "admin", "agent") {
+		fail(w, 403, "account forbidden")
+		return
+	}
+	var in struct {
+		ContactID    string `json:"contact_id"`
+		Priority     string `json:"priority"`
+		InternalNote string `json:"internal_note"`
+	}
+	if decode(r, &in) != nil || !auth.ValidUUID(in.ContactID) {
+		fail(w, 400, "invalid support ticket")
+		return
+	}
+	if in.Priority == "" {
+		in.Priority = "normal"
+	}
+	var id string
+	e := a.db.QueryRowContext(r.Context(),
+		"INSERT INTO business.support_tickets(official_account_id,contact_id,agent_id,priority,internal_note) VALUES ($1,$2,$3,$4,$5) RETURNING id",
+		accID, in.ContactID, claims(r).Subject, in.Priority, in.InternalNote).Scan(&id)
+	if e != nil {
+		fail(w, 500, "ticket creation failed")
+		return
+	}
+	send(w, 201, map[string]string{"id": id, "status": "open", "priority": in.Priority})
+}
+
+func (a *App) listSupportTickets(w http.ResponseWriter, r *http.Request) {
+	accID := r.PathValue("id")
+	if !a.hasAccountRole(r, accID, "owner", "admin", "agent", "analyst") {
+		fail(w, 403, "account forbidden")
+		return
+	}
+	rows, e := a.db.QueryContext(r.Context(),
+		"SELECT id,contact_id,COALESCE(agent_id,''),status,priority,COALESCE(internal_note,''),created_at FROM business.support_tickets WHERE official_account_id=$1 ORDER BY created_at DESC",
+		accID)
+	if e != nil {
+		fail(w, 500, "tickets unavailable")
+		return
+	}
+	defer rows.Close()
+	out := make([]any, 0)
+	for rows.Next() {
+		var id, cid, aid, st, prio, note string
+		var at any
+		if rows.Scan(&id, &cid, &aid, &st, &prio, &note, &at) == nil {
+			out = append(out, map[string]any{"id": id, "contact_id": cid, "agent_id": aid, "status": st, "priority": prio, "internal_note": note, "created_at": at})
+		}
+	}
+	send(w, 200, map[string]any{"tickets": out})
+}
+
+func (a *App) createBusinessCampaign(w http.ResponseWriter, r *http.Request) {
+	accID := r.PathValue("id")
+	if !a.hasAccountRole(r, accID, "owner", "admin") {
+		fail(w, 403, "account forbidden")
+		return
+	}
+	var in struct {
+		Name            string         `json:"name"`
+		MessageTemplate map[string]any `json:"message_template"`
+	}
+	if decode(r, &in) != nil || len(strings.TrimSpace(in.Name)) < 2 {
+		fail(w, 400, "invalid campaign")
+		return
+	}
+	tplBytes, _ := json.Marshal(in.MessageTemplate)
+	var id string
+	e := a.db.QueryRowContext(r.Context(),
+		"INSERT INTO business.campaigns(official_account_id,name,message_template,status) VALUES ($1,$2,$3,'scheduled') RETURNING id",
+		accID, in.Name, string(tplBytes)).Scan(&id)
+	if e != nil {
+		fail(w, 500, "campaign creation failed")
+		return
+	}
+	send(w, 201, map[string]string{"id": id, "name": in.Name, "status": "scheduled"})
+}
+
+func (a *App) createRichMenu(w http.ResponseWriter, r *http.Request) {
+	accID := r.PathValue("id")
+	if !a.hasAccountRole(r, accID, "owner", "admin") {
+		fail(w, 403, "account forbidden")
+		return
+	}
+	var in struct {
+		Title      string         `json:"title"`
+		Definition map[string]any `json:"definition"`
+		Enabled    bool           `json:"enabled"`
+	}
+	if decode(r, &in) != nil || len(strings.TrimSpace(in.Title)) < 2 {
+		fail(w, 400, "invalid rich menu")
+		return
+	}
+	defBytes, _ := json.Marshal(in.Definition)
+	var id string
+	e := a.db.QueryRowContext(r.Context(),
+		"INSERT INTO business.rich_menus(official_account_id,title,definition,enabled) VALUES ($1,$2,$3,$4) RETURNING id",
+		accID, in.Title, string(defBytes), in.Enabled).Scan(&id)
+	if e != nil {
+		fail(w, 500, "rich menu creation failed")
+		return
+	}
+	send(w, 201, map[string]any{"id": id, "title": in.Title, "enabled": in.Enabled})
+}
+
+func (a *App) createCoupon(w http.ResponseWriter, r *http.Request) {
+	accID := r.PathValue("id")
+	if !a.hasAccountRole(r, accID, "owner", "admin") {
+		fail(w, 403, "account forbidden")
+		return
+	}
+	var in struct {
+		Code           string `json:"code"`
+		MaxRedemptions int    `json:"max_redemptions"`
+	}
+	if decode(r, &in) != nil || len(strings.TrimSpace(in.Code)) < 3 {
+		fail(w, 400, "invalid coupon")
+		return
+	}
+	if in.MaxRedemptions <= 0 {
+		in.MaxRedemptions = 100
+	}
+	var id string
+	e := a.db.QueryRowContext(r.Context(),
+		"INSERT INTO business.coupons(official_account_id,code,max_redemptions) VALUES ($1,$2,$3) RETURNING id",
+		accID, strings.ToUpper(strings.TrimSpace(in.Code)), in.MaxRedemptions).Scan(&id)
+	if e != nil {
+		fail(w, 500, "coupon creation failed")
+		return
+	}
+	send(w, 201, map[string]string{"id": id, "code": strings.ToUpper(strings.TrimSpace(in.Code))})
 }

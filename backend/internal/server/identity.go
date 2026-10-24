@@ -2,11 +2,14 @@ package server
 
 import (
 	"database/sql"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
-	"github.com/example/global-messenger/backend/internal/auth"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/example/global-messenger/backend/internal/auth"
 )
 
 func (a *App) register(w http.ResponseWriter, r *http.Request) {
@@ -14,6 +17,9 @@ func (a *App) register(w http.ResponseWriter, r *http.Request) {
 		Email       string `json:"email"`
 		Password    string `json:"password"`
 		DisplayName string `json:"display_name"`
+		PhoneE164   string `json:"phone_e164"`
+		Handle      string `json:"handle"`
+		Locale      string `json:"locale"`
 	}
 	if e := decode(r, &input); e != nil {
 		fail(w, 400, "invalid request")
@@ -21,6 +27,11 @@ func (a *App) register(w http.ResponseWriter, r *http.Request) {
 	}
 	input.Email = strings.ToLower(strings.TrimSpace(input.Email))
 	input.DisplayName = strings.TrimSpace(input.DisplayName)
+	input.PhoneE164 = strings.TrimSpace(input.PhoneE164)
+	input.Handle = strings.TrimSpace(input.Handle)
+	if input.Locale == "" {
+		input.Locale = "ko"
+	}
 	if !strings.Contains(input.Email, "@") || len(input.Email) > 254 || len(input.DisplayName) < 1 || len(input.DisplayName) > 120 {
 		fail(w, 400, "invalid email or name")
 		return
@@ -30,8 +41,17 @@ func (a *App) register(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, e.Error())
 		return
 	}
+	var phoneArg, handleArg any
+	if input.PhoneE164 != "" {
+		phoneArg = input.PhoneE164
+	}
+	if input.Handle != "" {
+		handleArg = input.Handle
+	}
 	var id string
-	e = a.db.QueryRowContext(r.Context(), "INSERT INTO identity.users(email,password_hash,display_name) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING RETURNING id", input.Email, hash, input.DisplayName).Scan(&id)
+	e = a.db.QueryRowContext(r.Context(),
+		"INSERT INTO identity.users(email,password_hash,display_name,phone_e164,handle,locale) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING RETURNING id",
+		input.Email, hash, input.DisplayName, phoneArg, handleArg, input.Locale).Scan(&id)
 	if errors.Is(e, sql.ErrNoRows) {
 		fail(w, 409, "account already exists")
 		return
@@ -40,12 +60,16 @@ func (a *App) register(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, "registration failed")
 		return
 	}
+	_, _ = a.db.ExecContext(r.Context(), "INSERT INTO identity.user_settings(user_id) VALUES ($1) ON CONFLICT DO NOTHING", id)
 	send(w, 201, map[string]string{"id": id, "status": "created"})
 }
+
 func (a *App) login(w http.ResponseWriter, r *http.Request) {
 	var input struct {
-		Email    string `json:"email"`
-		Password string `json:"password"`
+		Email      string `json:"email"`
+		Password   string `json:"password"`
+		DeviceName string `json:"device_name"`
+		Platform   string `json:"platform"`
 	}
 	if decode(r, &input) != nil {
 		fail(w, 400, "invalid request")
@@ -57,19 +81,514 @@ func (a *App) login(w http.ResponseWriter, r *http.Request) {
 		fail(w, 401, "invalid credentials")
 		return
 	}
-	token, e := auth.Sign(id, role, []byte(a.cfg.Secret), 15*time.Minute)
+	if input.DeviceName == "" {
+		input.DeviceName = "Primary Client"
+	}
+	if input.Platform == "" {
+		input.Platform = "web"
+	}
+	resp, e := a.issueSessionTokens(r, id, role, input.DeviceName, input.Platform, true)
 	if e != nil {
 		fail(w, 500, "token signing unavailable")
 		return
 	}
-	send(w, 200, map[string]any{"access_token": token, "token_type": "Bearer", "expires_in": 900, "user_id": id, "role": role})
+	send(w, 200, resp)
 }
+
+func (a *App) issueSessionTokens(r *http.Request, userID, role, deviceName, platform string, trusted bool) (map[string]any, error) {
+	token, e := auth.Sign(userID, role, []byte(a.cfg.Secret), 15*time.Minute)
+	if e != nil {
+		return nil, e
+	}
+	var deviceID string
+	_ = a.db.QueryRowContext(r.Context(),
+		"INSERT INTO identity.devices(user_id,name,platform,trusted,last_seen_at) VALUES ($1,$2,$3,$4,now()) RETURNING id",
+		userID, deviceName, platform, trusted).Scan(&deviceID)
+	refreshRaw, _ := randomSecret(32)
+	var sessionID string
+	if refreshRaw != "" && deviceID != "" {
+		exp := time.Now().UTC().Add(30 * 24 * time.Hour).Format(time.RFC3339)
+		_ = a.db.QueryRowContext(r.Context(),
+			"INSERT INTO identity.sessions(user_id,device_id,refresh_token_hash,expires_at,last_seen_at) VALUES ($1,$2,$3,$4,now()) RETURNING id",
+			userID, deviceID, sha256hex(refreshRaw), exp).Scan(&sessionID)
+	}
+	return map[string]any{
+		"access_token":  token,
+		"refresh_token": refreshRaw,
+		"session_id":    sessionID,
+		"device_id":     deviceID,
+		"token_type":    "Bearer",
+		"expires_in":    900,
+		"user_id":       userID,
+		"role":          role,
+	}, nil
+}
+
+func (a *App) refreshToken(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		RefreshToken string `json:"refresh_token"`
+	}
+	if decode(r, &in) != nil || len(in.RefreshToken) < 16 {
+		fail(w, 400, "invalid refresh_token")
+		return
+	}
+	var sessionID, userID, deviceID string
+	var revoked any
+	e := a.db.QueryRowContext(r.Context(),
+		"SELECT id,user_id,COALESCE(device_id,''),revoked_at FROM identity.sessions WHERE refresh_token_hash=$1",
+		sha256hex(in.RefreshToken)).Scan(&sessionID, &userID, &deviceID, &revoked)
+	if e != nil || revoked != nil {
+		fail(w, 401, "invalid or revoked refresh token")
+		return
+	}
+	var role, state string
+	if e := a.db.QueryRowContext(r.Context(), "SELECT role,state FROM identity.users WHERE id=$1", userID).Scan(&role, &state); e != nil || state != "active" {
+		fail(w, 401, "account unavailable")
+		return
+	}
+	newRefresh, e := randomSecret(32)
+	if e != nil {
+		fail(w, 500, "secret generation failed")
+		return
+	}
+	exp := time.Now().UTC().Add(30 * 24 * time.Hour).Format(time.RFC3339)
+	_, e = a.db.ExecContext(r.Context(),
+		"UPDATE identity.sessions SET refresh_token_hash=$2,expires_at=$3,last_seen_at=now() WHERE id=$1",
+		sessionID, sha256hex(newRefresh), exp)
+	if e != nil {
+		fail(w, 500, "session rotation failed")
+		return
+	}
+	access, e := auth.Sign(userID, role, []byte(a.cfg.Secret), 15*time.Minute)
+	if e != nil {
+		fail(w, 500, "token signing failed")
+		return
+	}
+	send(w, 200, map[string]any{
+		"access_token":  access,
+		"refresh_token": newRefresh,
+		"token_type":    "Bearer",
+		"expires_in":    900,
+		"user_id":       userID,
+		"device_id":     deviceID,
+		"role":          role,
+	})
+}
+
+func (a *App) logout(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		RefreshToken string `json:"refresh_token"`
+	}
+	_ = decode(r, &in)
+	if in.RefreshToken != "" {
+		_, _ = a.db.ExecContext(r.Context(), "UPDATE identity.sessions SET revoked_at=now() WHERE user_id=$1 AND refresh_token_hash=$2", claims(r).Subject, sha256hex(in.RefreshToken))
+	} else {
+		_, _ = a.db.ExecContext(r.Context(), "UPDATE identity.sessions SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL", claims(r).Subject)
+	}
+	send(w, 200, map[string]string{"status": "logged_out"})
+}
+
+// qrChallenge creates a desktop QR login challenge (Phase 2: 024, E2E Scenario #2).
+func (a *App) qrChallenge(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		DeviceName string `json:"device_name"`
+		Platform   string `json:"platform"`
+	}
+	_ = decode(r, &in)
+	if in.DeviceName == "" {
+		in.DeviceName = "Windows Desktop PC"
+	}
+	if in.Platform == "" {
+		in.Platform = "windows"
+	}
+	code, e := randomSecret(24)
+	if e != nil {
+		fail(w, 500, "challenge generation failed")
+		return
+	}
+	exp := time.Now().UTC().Add(3 * time.Minute).Format(time.RFC3339)
+	dest := in.Platform + ":" + in.DeviceName
+	var challengeID string
+	e = a.db.QueryRowContext(r.Context(),
+		"INSERT INTO identity.verification_challenges(destination,purpose,code_hash,expires_at) VALUES ($1,'qr_login',$2,$3) RETURNING id",
+		dest, sha256hex(code), exp).Scan(&challengeID)
+	if e != nil {
+		fail(w, 500, "challenge creation failed")
+		return
+	}
+	send(w, 201, map[string]any{
+		"challenge_id": challengeID,
+		"qr_token":     code,
+		"expires_in":   180,
+		"device_name":  in.DeviceName,
+		"platform":     in.Platform,
+	})
+}
+
+// qrApprove allows an authenticated mobile user to approve a desktop QR login challenge.
+func (a *App) qrApprove(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		ChallengeID string `json:"challenge_id"`
+		QRToken     string `json:"qr_token"`
+	}
+	if decode(r, &in) != nil || !auth.ValidUUID(in.ChallengeID) || len(in.QRToken) < 16 {
+		fail(w, 400, "invalid qr approval request")
+		return
+	}
+	var codeHash, purpose string
+	var consumed any
+	e := a.db.QueryRowContext(r.Context(),
+		"SELECT code_hash,purpose,consumed_at FROM identity.verification_challenges WHERE id=$1",
+		in.ChallengeID).Scan(&codeHash, &purpose, &consumed)
+	if e != nil || purpose != "qr_login" || consumed != nil || codeHash != sha256hex(in.QRToken) {
+		fail(w, 400, "invalid or expired qr challenge")
+		return
+	}
+	_, e = a.db.ExecContext(r.Context(),
+		"UPDATE identity.verification_challenges SET user_id=$2 WHERE id=$1 AND consumed_at IS NULL",
+		in.ChallengeID, claims(r).Subject)
+	if e != nil {
+		fail(w, 500, "qr approval failed")
+		return
+	}
+	payload, _ := json.Marshal(map[string]any{"type": "device.qr_approved", "challenge_id": in.ChallengeID, "user_id": claims(r).Subject})
+	a.hub.Notify([]string{claims(r).Subject}, payload)
+	send(w, 200, map[string]string{"status": "approved", "challenge_id": in.ChallengeID})
+}
+
+// qrPoll allows the desktop client to exchange an approved QR challenge for session tokens.
+func (a *App) qrPoll(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		ChallengeID string `json:"challenge_id"`
+		QRToken     string `json:"qr_token"`
+	}
+	if decode(r, &in) != nil || !auth.ValidUUID(in.ChallengeID) || len(in.QRToken) < 16 {
+		fail(w, 400, "invalid qr poll request")
+		return
+	}
+	var userID, dest, codeHash string
+	var consumed any
+	e := a.db.QueryRowContext(r.Context(),
+		"SELECT COALESCE(user_id,''),destination,code_hash,consumed_at FROM identity.verification_challenges WHERE id=$1 AND purpose='qr_login'",
+		in.ChallengeID).Scan(&userID, &dest, &codeHash, &consumed)
+	if e != nil || codeHash != sha256hex(in.QRToken) {
+		fail(w, 401, "invalid qr challenge")
+		return
+	}
+	if consumed != nil {
+		fail(w, 409, "qr challenge already consumed")
+		return
+	}
+	if userID == "" {
+		send(w, 202, map[string]string{"status": "pending"})
+		return
+	}
+	_, e = a.db.ExecContext(r.Context(), "UPDATE identity.verification_challenges SET consumed_at=now() WHERE id=$1 AND consumed_at IS NULL", in.ChallengeID)
+	if e != nil {
+		fail(w, 500, "qr challenge consumption failed")
+		return
+	}
+	var role, state string
+	if e := a.db.QueryRowContext(r.Context(), "SELECT role,state FROM identity.users WHERE id=$1", userID).Scan(&role, &state); e != nil || state != "active" {
+		fail(w, 401, "account unavailable")
+		return
+	}
+	parts := strings.SplitN(dest, ":", 2)
+	platform, deviceName := "windows", "Desktop PC"
+	if len(parts) == 2 {
+		platform, deviceName = parts[0], parts[1]
+	}
+	resp, e := a.issueSessionTokens(r, userID, role, deviceName, platform, true)
+	if e != nil {
+		fail(w, 500, "session creation failed")
+		return
+	}
+	resp["status"] = "authenticated"
+	send(w, 200, resp)
+}
+
 func (a *App) me(w http.ResponseWriter, r *http.Request) {
-	var id, email, name, role string
-	e := a.db.QueryRowContext(r.Context(), "SELECT id,email,display_name,role FROM identity.users WHERE id=$1", claims(r).Subject).Scan(&id, &email, &name, &role)
+	var id, email, name, role, handle, phone, avatar, bio, locale string
+	e := a.db.QueryRowContext(r.Context(),
+		"SELECT id,email,display_name,role,COALESCE(handle,''),COALESCE(phone_e164,''),COALESCE(avatar_url,''),bio,locale FROM identity.users WHERE id=$1",
+		claims(r).Subject).Scan(&id, &email, &name, &role, &handle, &phone, &avatar, &bio, &locale)
 	if e != nil {
 		fail(w, 404, "not found")
 		return
 	}
-	send(w, 200, map[string]string{"id": id, "email": email, "display_name": name, "role": role})
+	send(w, 200, map[string]string{
+		"id":           id,
+		"email":        email,
+		"display_name": name,
+		"role":         role,
+		"handle":       handle,
+		"phone_e164":   phone,
+		"avatar_url":   avatar,
+		"bio":          bio,
+		"locale":       locale,
+	})
+}
+
+func (a *App) updateMe(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		DisplayName *string `json:"display_name"`
+		Handle      *string `json:"handle"`
+		Bio         *string `json:"bio"`
+		AvatarURL   *string `json:"avatar_url"`
+		PhoneE164   *string `json:"phone_e164"`
+		Locale      *string `json:"locale"`
+	}
+	if decode(r, &in) != nil {
+		fail(w, 400, "invalid profile update")
+		return
+	}
+	uid := claims(r).Subject
+	if in.DisplayName != nil {
+		name := strings.TrimSpace(*in.DisplayName)
+		if len(name) < 1 || len(name) > 120 {
+			fail(w, 400, "invalid display_name")
+			return
+		}
+		_, _ = a.db.ExecContext(r.Context(), "UPDATE identity.users SET display_name=$2,updated_at=now() WHERE id=$1", uid, name)
+	}
+	if in.Handle != nil {
+		h := strings.TrimSpace(*in.Handle)
+		if len(h) > 64 {
+			fail(w, 400, "invalid handle")
+			return
+		}
+		if _, e := a.db.ExecContext(r.Context(), "UPDATE identity.users SET handle=$2,updated_at=now() WHERE id=$1", uid, h); e != nil {
+			fail(w, 409, "handle already taken")
+			return
+		}
+	}
+	if in.Bio != nil {
+		if len(*in.Bio) > 500 {
+			fail(w, 400, "bio too long")
+			return
+		}
+		_, _ = a.db.ExecContext(r.Context(), "UPDATE identity.users SET bio=$2,updated_at=now() WHERE id=$1", uid, *in.Bio)
+	}
+	if in.AvatarURL != nil {
+		_, _ = a.db.ExecContext(r.Context(), "UPDATE identity.users SET avatar_url=$2,updated_at=now() WHERE id=$1", uid, *in.AvatarURL)
+	}
+	if in.PhoneE164 != nil {
+		_, _ = a.db.ExecContext(r.Context(), "UPDATE identity.users SET phone_e164=$2,updated_at=now() WHERE id=$1", uid, strings.TrimSpace(*in.PhoneE164))
+	}
+	if in.Locale != nil && len(*in.Locale) >= 2 && len(*in.Locale) <= 10 {
+		_, _ = a.db.ExecContext(r.Context(), "UPDATE identity.users SET locale=$2,updated_at=now() WHERE id=$1", uid, *in.Locale)
+	}
+	a.me(w, r)
+}
+
+func (a *App) getSettings(w http.ResponseWriter, r *http.Request) {
+	uid := claims(r).Subject
+	_, _ = a.db.ExecContext(r.Context(), "INSERT INTO identity.user_settings(user_id) VALUES ($1) ON CONFLICT DO NOTHING", uid)
+	var byEmail, byPhone, receipts, allowReq bool
+	var theme string
+	e := a.db.QueryRowContext(r.Context(),
+		"SELECT searchable_by_email,searchable_by_phone,show_read_receipts,allow_friend_requests,theme FROM identity.user_settings WHERE user_id=$1",
+		uid).Scan(&byEmail, &byPhone, &receipts, &allowReq, &theme)
+	if e != nil {
+		fail(w, 500, "settings unavailable")
+		return
+	}
+	send(w, 200, map[string]any{
+		"searchable_by_email":   byEmail,
+		"searchable_by_phone":   byPhone,
+		"show_read_receipts":    receipts,
+		"allow_friend_requests": allowReq,
+		"theme":                 theme,
+	})
+}
+
+func (a *App) updateSettings(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		SearchableByEmail   bool   `json:"searchable_by_email"`
+		SearchableByPhone   bool   `json:"searchable_by_phone"`
+		ShowReadReceipts    bool   `json:"show_read_receipts"`
+		AllowFriendRequests bool   `json:"allow_friend_requests"`
+		Theme               string `json:"theme"`
+	}
+	if decode(r, &in) != nil {
+		fail(w, 400, "invalid settings")
+		return
+	}
+	if in.Theme == "" {
+		in.Theme = "system"
+	}
+	uid := claims(r).Subject
+	_, e := a.db.ExecContext(r.Context(),
+		`INSERT INTO identity.user_settings(user_id,searchable_by_email,searchable_by_phone,show_read_receipts,allow_friend_requests,theme,updated_at)
+		 VALUES ($1,$2,$3,$4,$5,$6,now())
+		 ON CONFLICT(user_id) DO UPDATE SET searchable_by_email=$2,searchable_by_phone=$3,show_read_receipts=$4,allow_friend_requests=$5,theme=$6,updated_at=now()`,
+		uid, in.SearchableByEmail, in.SearchableByPhone, in.ShowReadReceipts, in.AllowFriendRequests, in.Theme)
+	if e != nil {
+		fail(w, 500, "settings update failed")
+		return
+	}
+	a.getSettings(w, r)
+}
+
+func (a *App) listDevices(w http.ResponseWriter, r *http.Request) {
+	rows, e := a.db.QueryContext(r.Context(),
+		"SELECT id,name,platform,trusted,created_at FROM identity.devices WHERE user_id=$1 AND revoked_at IS NULL ORDER BY created_at DESC",
+		claims(r).Subject)
+	if e != nil {
+		fail(w, 500, "devices unavailable")
+		return
+	}
+	defer rows.Close()
+	out := make([]any, 0)
+	for rows.Next() {
+		var id, name, platform string
+		var trusted bool
+		var created any
+		if rows.Scan(&id, &name, &platform, &trusted, &created) == nil {
+			out = append(out, map[string]any{"id": id, "name": name, "platform": platform, "trusted": trusted, "created_at": created})
+		}
+	}
+	send(w, 200, map[string]any{"devices": out})
+}
+
+func (a *App) revokeDevice(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if !auth.ValidUUID(id) {
+		fail(w, 400, "invalid device id")
+		return
+	}
+	_, e := a.db.ExecContext(r.Context(), "UPDATE identity.devices SET revoked_at=now() WHERE id=$1 AND user_id=$2", id, claims(r).Subject)
+	if e != nil {
+		fail(w, 500, "device revoke failed")
+		return
+	}
+	_, _ = a.db.ExecContext(r.Context(), "UPDATE identity.sessions SET revoked_at=now() WHERE device_id=$1 AND user_id=$2", id, claims(r).Subject)
+	send(w, 200, map[string]string{"status": "revoked", "device_id": id})
+}
+
+// uploadDeviceKeys stores E2EE Signal/Letter-Sealing public key bundles (Phase 4: 052, 053).
+func (a *App) uploadDeviceKeys(w http.ResponseWriter, r *http.Request) {
+	deviceID := r.PathValue("id")
+	if !auth.ValidUUID(deviceID) {
+		fail(w, 400, "invalid device id")
+		return
+	}
+	var count int
+	if e := a.db.QueryRowContext(r.Context(), "SELECT count(*) FROM identity.devices WHERE id=$1 AND user_id=$2 AND revoked_at IS NULL", deviceID, claims(r).Subject).Scan(&count); e != nil || count == 0 {
+		fail(w, 403, "device forbidden")
+		return
+	}
+	var in struct {
+		IdentityPublicKey     string `json:"identity_public_key"`
+		SignedPrekey          string `json:"signed_prekey"`
+		SignedPrekeySignature string `json:"signed_prekey_signature"`
+		OneTimePrekeys        []struct {
+			KeyID     int    `json:"key_id"`
+			PublicKey string `json:"public_key"`
+		} `json:"one_time_prekeys"`
+	}
+	if decode(r, &in) != nil || len(in.IdentityPublicKey) < 8 || len(in.SignedPrekey) < 8 || len(in.SignedPrekeySignature) < 8 {
+		fail(w, 400, "invalid key bundle")
+		return
+	}
+	idKey, e1 := base64.StdEncoding.DecodeString(in.IdentityPublicKey)
+	sKey, e2 := base64.StdEncoding.DecodeString(in.SignedPrekey)
+	sig, e3 := base64.StdEncoding.DecodeString(in.SignedPrekeySignature)
+	if e1 != nil || e2 != nil || e3 != nil {
+		idKey = []byte(in.IdentityPublicKey)
+		sKey = []byte(in.SignedPrekey)
+		sig = []byte(in.SignedPrekeySignature)
+	}
+	_, e := a.db.ExecContext(r.Context(),
+		`INSERT INTO crypto.device_keys(device_id,identity_public_key,signed_prekey,signed_prekey_signature,updated_at)
+		 VALUES ($1,$2,$3,$4,now())
+		 ON CONFLICT(device_id) DO UPDATE SET identity_public_key=$2,signed_prekey=$3,signed_prekey_signature=$4,updated_at=now()`,
+		deviceID, idKey, sKey, sig)
+	if e != nil {
+		fail(w, 500, "key bundle storage failed")
+		return
+	}
+	for _, pk := range in.OneTimePrekeys {
+		pub, err := base64.StdEncoding.DecodeString(pk.PublicKey)
+		if err != nil {
+			pub = []byte(pk.PublicKey)
+		}
+		_, _ = a.db.ExecContext(r.Context(),
+			"INSERT INTO crypto.prekeys(device_id,key_id,public_key) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING",
+			deviceID, pk.KeyID, pub)
+	}
+	_, _ = a.db.ExecContext(r.Context(), "INSERT INTO crypto.key_change_events(user_id,device_id) VALUES ($1,$2)", claims(r).Subject, deviceID)
+	send(w, 200, map[string]any{"status": "uploaded", "device_id": deviceID, "prekeys_count": len(in.OneTimePrekeys)})
+}
+
+func (a *App) getUserKeys(w http.ResponseWriter, r *http.Request) {
+	targetUserID := r.PathValue("id")
+	if !auth.ValidUUID(targetUserID) {
+		fail(w, 400, "invalid user id")
+		return
+	}
+	rows, e := a.db.QueryContext(r.Context(),
+		`SELECT d.id,dk.identity_public_key,dk.signed_prekey,dk.signed_prekey_signature
+		 FROM identity.devices d JOIN crypto.device_keys dk ON dk.device_id=d.id
+		 WHERE d.user_id=$1 AND d.revoked_at IS NULL`, targetUserID)
+	if e != nil {
+		fail(w, 500, "key lookup failed")
+		return
+	}
+	defer rows.Close()
+	bundles := make([]any, 0)
+	for rows.Next() {
+		var devID string
+		var idKey, sKey, sig []byte
+		if rows.Scan(&devID, &idKey, &sKey, &sig) == nil {
+			bundles = append(bundles, map[string]any{
+				"device_id":               devID,
+				"identity_public_key":     base64.StdEncoding.EncodeToString(idKey),
+				"signed_prekey":           base64.StdEncoding.EncodeToString(sKey),
+				"signed_prekey_signature": base64.StdEncoding.EncodeToString(sig),
+			})
+		}
+	}
+	send(w, 200, map[string]any{"user_id": targetUserID, "device_bundles": bundles})
+}
+
+func (a *App) createBackup(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		EncryptedObjectKey    string         `json:"encrypted_object_key"`
+		KeyDerivationMetadata map[string]any `json:"key_derivation_metadata"`
+	}
+	if decode(r, &in) != nil || len(strings.TrimSpace(in.EncryptedObjectKey)) < 4 {
+		fail(w, 400, "invalid backup metadata")
+		return
+	}
+	metaJSON, _ := json.Marshal(in.KeyDerivationMetadata)
+	var id string
+	e := a.db.QueryRowContext(r.Context(),
+		"INSERT INTO crypto.encrypted_backups(user_id,encrypted_object_key,key_derivation_metadata) VALUES ($1,$2,$3) RETURNING id",
+		claims(r).Subject, in.EncryptedObjectKey, string(metaJSON)).Scan(&id)
+	if e != nil {
+		fail(w, 500, "backup record failed")
+		return
+	}
+	send(w, 201, map[string]string{"id": id, "encrypted_object_key": in.EncryptedObjectKey})
+}
+
+func (a *App) listBackups(w http.ResponseWriter, r *http.Request) {
+	rows, e := a.db.QueryContext(r.Context(),
+		"SELECT id,encrypted_object_key,key_derivation_metadata,created_at FROM crypto.encrypted_backups WHERE user_id=$1 ORDER BY created_at DESC",
+		claims(r).Subject)
+	if e != nil {
+		fail(w, 500, "backups unavailable")
+		return
+	}
+	defer rows.Close()
+	out := make([]any, 0)
+	for rows.Next() {
+		var id, key, meta string
+		var created any
+		if rows.Scan(&id, &key, &meta, &created) == nil {
+			out = append(out, map[string]any{"id": id, "encrypted_object_key": key, "key_derivation_metadata": meta, "created_at": created})
+		}
+	}
+	send(w, 200, map[string]any{"backups": out})
 }
