@@ -1,0 +1,10 @@
+syntax = "proto3";
+package messenger.v1;
+option go_package = "github.com/example/global-messenger/backend/gen/messenger/v1;messengerv1";
+
+import "messenger/v1/chat.proto";
+service RealtimeService { rpc StreamEvents(StreamEventsRequest) returns (stream ServerEvent); rpc PublishEvent(ServerEvent) returns (PublishEventResponse); }
+message StreamEventsRequest { string user_id = 1; string device_id = 2; int64 after_offset = 3; }
+message ServerEvent { string event_id = 1; string type = 2; string user_id = 3; ChatMessage message = 4; int64 created_at_unix_ms = 5; bytes payload = 6; }
+message PublishEventResponse { bool accepted = 1; }
+message DeliveryAck { string device_id = 1; string event_id = 2; int64 delivered_at_unix_ms = 3; }

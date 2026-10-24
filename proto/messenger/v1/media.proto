@@ -1,0 +1,11 @@
+syntax = "proto3";
+package messenger.v1;
+option go_package = "github.com/example/global-messenger/backend/gen/messenger/v1;messengerv1";
+
+import "messenger/v1/common.proto";
+service MediaService { rpc CreateUpload(CreateUploadRequest) returns (UploadGrant); rpc CompleteUpload(CompleteUploadRequest) returns (MediaObject); rpc GetMedia(GetMediaRequest) returns (MediaObject); }
+message CreateUploadRequest { string actor_id = 1; string conversation_id = 2; string original_name = 3; string mime = 4; int64 size_bytes = 5; string sha256 = 6; }
+message UploadGrant { string upload_id = 1; string presigned_url = 2; int64 expires_at_unix = 3; }
+message CompleteUploadRequest { string actor_id = 1; string upload_id = 2; }
+message GetMediaRequest { string actor_id = 1; string object_id = 2; }
+message MediaObject { string id = 1; string object_key = 2; string mime = 3; int64 size_bytes = 4; string status = 5; }

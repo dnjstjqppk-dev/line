@@ -1,0 +1,9 @@
+syntax = "proto3";
+package messenger.v1;
+option go_package = "github.com/example/global-messenger/backend/gen/messenger/v1;messengerv1";
+
+import "messenger/v1/common.proto";
+service OperationsService { rpc GetMetrics(GetMetricsRequest) returns (PlatformMetrics); rpc SetFeatureFlag(SetFeatureFlagRequest) returns (Empty); }
+message GetMetricsRequest { string requester_id = 1; }
+message PlatformMetrics { int64 users = 1; int64 conversations = 2; int64 messages = 3; int64 open_reports = 4; }
+message SetFeatureFlagRequest { string actor_id = 1; string key = 2; bool enabled = 3; }

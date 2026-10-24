@@ -1,0 +1,9 @@
+{
+ "$schema":"https://schema.tauri.app/config/2",
+ "productName":"Global Messenger",
+ "version":"0.1.0",
+ "identifier":"com.example.globalmessenger",
+ "build":{"beforeDevCommand":"cd ../../ && npm run dev:user","beforeBuildCommand":"cd ../../ && npm run build -w @messenger/user-web","devUrl":"http://localhost:5173","frontendDist":"../../../apps/user-web/dist"},
+ "app":{"windows":[{"title":"Global Messenger","width":1100,"height":760,"minWidth":700,"minHeight":500}],"security":{"csp":null}},
+ "bundle":{"active":false}
+}

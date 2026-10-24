@@ -1,0 +1,23 @@
+syntax = "proto3";
+package messenger.v1;
+option go_package = "github.com/example/global-messenger/backend/gen/messenger/v1;messengerv1";
+
+import "messenger/v1/common.proto";
+service ChatService {
+ rpc CreateConversation(CreateConversationRequest) returns (Conversation);
+ rpc ListConversations(ListConversationsRequest) returns (ListConversationsResponse);
+ rpc SendMessage(SendMessageRequest) returns (ChatMessage);
+ rpc ListMessages(ListMessagesRequest) returns (ListMessagesResponse);
+ rpc MarkRead(MarkReadRequest) returns (Empty);
+ rpc AddMember(AddConversationMemberRequest) returns (Empty);
+}
+message Conversation { string id = 1; string kind = 2; string title = 3; repeated string member_ids = 4; int64 last_sequence = 5; }
+message ChatMessage { string id = 1; string conversation_id = 2; string sender_id = 3; string client_id = 4; int64 sequence = 5; string kind = 6; string body = 7; bytes ciphertext = 8; int64 created_at_unix_ms = 9; }
+message CreateConversationRequest { string actor_id = 1; string kind = 2; string title = 3; repeated string member_ids = 4; }
+message ListConversationsRequest { string actor_id = 1; PageRequest page = 2; }
+message ListConversationsResponse { repeated Conversation conversations = 1; PageInfo page = 2; }
+message SendMessageRequest { string actor_id = 1; string conversation_id = 2; string client_id = 3; string kind = 4; string body = 5; bytes ciphertext = 6; }
+message ListMessagesRequest { string actor_id = 1; string conversation_id = 2; int64 before_sequence = 3; int32 limit = 4; }
+message ListMessagesResponse { repeated ChatMessage messages = 1; int64 next_before_sequence = 2; }
+message MarkReadRequest { string actor_id = 1; string conversation_id = 2; int64 sequence = 3; }
+message AddConversationMemberRequest { string actor_id = 1; string conversation_id = 2; string member_id = 3; }

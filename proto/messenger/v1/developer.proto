@@ -1,0 +1,12 @@
+syntax = "proto3";
+package messenger.v1;
+option go_package = "github.com/example/global-messenger/backend/gen/messenger/v1;messengerv1";
+
+import "messenger/v1/common.proto";
+service DeveloperService { rpc CreateApplication(CreateApplicationRequest) returns (DeveloperApplication); rpc RegisterWebhook(RegisterWebhookRequest) returns (WebhookConfig); rpc ValidateOAuthGrant(OAuthGrantRequest) returns (OAuthGrantResponse); }
+message CreateApplicationRequest { string actor_id = 1; string organization_id = 2; string name = 3; repeated string redirect_uris = 4; }
+message DeveloperApplication { string id = 1; string client_id = 2; string name = 3; repeated string scopes = 4; }
+message RegisterWebhookRequest { string actor_id = 1; string app_id = 2; string endpoint_url = 3; }
+message WebhookConfig { string id = 1; string endpoint_url = 2; bool enabled = 3; }
+message OAuthGrantRequest { string client_id = 1; string authorization_code = 2; string code_verifier = 3; }
+message OAuthGrantResponse { string access_token = 1; string scope = 2; int64 expires_in = 3; }

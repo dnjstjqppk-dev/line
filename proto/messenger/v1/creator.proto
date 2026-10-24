@@ -1,0 +1,11 @@
+syntax = "proto3";
+package messenger.v1;
+option go_package = "github.com/example/global-messenger/backend/gen/messenger/v1;messengerv1";
+
+import "messenger/v1/common.proto";
+service CreatorService { rpc SubmitStickerPack(SubmitStickerPackRequest) returns (StickerPack); rpc ReviewStickerPack(ReviewStickerPackRequest) returns (StickerPack); rpc GetSettlement(GetCreatorSettlementRequest) returns (CreatorSettlement); }
+message SubmitStickerPackRequest { string creator_id = 1; string title = 2; repeated string object_keys = 3; Money price = 4; }
+message StickerPack { string id = 1; string title = 2; string state = 3; }
+message ReviewStickerPackRequest { string actor_id = 1; string pack_id = 2; string outcome = 3; string reason = 4; }
+message GetCreatorSettlementRequest { string creator_id = 1; string period = 2; }
+message CreatorSettlement { string id = 1; Money amount = 2; string state = 3; }

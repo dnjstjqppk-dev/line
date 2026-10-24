@@ -1,0 +1,18 @@
+syntax = "proto3";
+package messenger.v1;
+option go_package = "github.com/example/global-messenger/backend/gen/messenger/v1;messengerv1";
+
+import "messenger/v1/common.proto";
+service SocialService {
+ rpc SearchUsers(SearchUsersRequest) returns (SearchUsersResponse);
+ rpc AddFriend(AddFriendRequest) returns (Friendship);
+ rpc BlockUser(BlockUserRequest) returns (Empty);
+ rpc ListFriends(ListFriendsRequest) returns (SearchUsersResponse);
+}
+message SearchUsersRequest { string user_id = 1; string query = 2; PageRequest page = 3; }
+message SearchUsersResponse { repeated UserProfile users = 1; PageInfo page = 2; }
+message UserProfile { string id = 1; string display_name = 2; string handle = 3; string avatar_url = 4; }
+message AddFriendRequest { string actor_id = 1; string friend_id = 2; }
+message Friendship { string user_id = 1; string friend_id = 2; }
+message BlockUserRequest { string actor_id = 1; string blocked_user_id = 2; }
+message ListFriendsRequest { string user_id = 1; PageRequest page = 2; }

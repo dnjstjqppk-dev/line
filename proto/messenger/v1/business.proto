@@ -1,0 +1,13 @@
+syntax = "proto3";
+package messenger.v1;
+option go_package = "github.com/example/global-messenger/backend/gen/messenger/v1;messengerv1";
+
+import "messenger/v1/common.proto";
+service BusinessService { rpc CreateOrganization(CreateBusinessOrgRequest) returns (BusinessOrganization); rpc CreateOfficialAccount(CreateOfficialAccountRequest) returns (OfficialAccount); rpc CreateCampaign(CreateBusinessCampaignRequest) returns (BusinessCampaign); rpc AssignSupportTicket(AssignTicketRequest) returns (Empty); }
+message CreateBusinessOrgRequest { string actor_id = 1; string name = 2; string legal_name = 3; string country = 4; }
+message BusinessOrganization { string id = 1; string name = 2; string verification_state = 3; }
+message CreateOfficialAccountRequest { string actor_id = 1; string organization_id = 2; string name = 3; }
+message OfficialAccount { string id = 1; string organization_id = 2; string name = 3; string status = 4; }
+message CreateBusinessCampaignRequest { string actor_id = 1; string official_account_id = 2; string name = 3; bytes template_json = 4; int64 schedule_unix_ms = 5; }
+message BusinessCampaign { string id = 1; string status = 2; int64 scheduled_at_unix_ms = 3; }
+message AssignTicketRequest { string actor_id = 1; string ticket_id = 2; string agent_id = 3; }

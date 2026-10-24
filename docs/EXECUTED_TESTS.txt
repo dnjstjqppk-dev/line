@@ -1,0 +1,7 @@
+?   	github.com/example/global-messenger/backend/internal/realtime	[no test files]
+=== RUN   TestPassword
+--- PASS: TestPassword (0.17s)
+=== RUN   TestJWT
+--- PASS: TestJWT (0.00s)
+PASS
+ok  	github.com/example/global-messenger/backend/internal/auth	0.174s

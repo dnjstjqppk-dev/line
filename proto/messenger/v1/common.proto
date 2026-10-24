@@ -1,0 +1,10 @@
+syntax = "proto3";
+package messenger.v1;
+option go_package = "github.com/example/global-messenger/backend/gen/messenger/v1;messengerv1";
+
+message Empty {}
+message PageRequest { int32 limit = 1; string cursor = 2; }
+message PageInfo { string next_cursor = 1; bool has_more = 2; }
+message EntityRef { string id = 1; string kind = 2; }
+message ApiError { string code = 1; string message = 2; string request_id = 3; }
+message Money { string currency = 1; int64 amount_minor = 2; }

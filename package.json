@@ -1,0 +1,15 @@
+{
+ "name":"global-messenger-monorepo",
+ "version":"0.1.0",
+ "private":true,
+ "workspaces":["apps/user-web","apps/admin-console","apps/partner-console","apps/developer-console","apps/creator-console","apps/ads-console"],
+ "scripts":{
+  "dev:user":"npm run dev -w @messenger/user-web",
+  "dev:admin":"npm run dev -w @messenger/admin-console",
+  "dev:partner":"npm run dev -w @messenger/partner-console",
+  "dev:developer":"npm run dev -w @messenger/developer-console",
+  "dev:creator":"npm run dev -w @messenger/creator-console",
+  "dev:ads":"npm run dev -w @messenger/ads-console",
+  "build:apps":"npm run build --workspaces"
+ }
+}

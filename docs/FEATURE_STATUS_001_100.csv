@@ -1,0 +1,101 @@
+﻿requirement_id,phase,feature,implementation_status,implemented_scope_or_gap,schema_or_proto_notes
+R-001,01_scope,LINE public feature inventory,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-002,01_scope,Feature traceability matrix,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-003,01_scope,Role and access model,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-004,01_scope,Application separation and routes,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-005,01_scope,Target platforms and browsers,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-006,01_scope,Regional privacy and payment rules,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-007,01_scope,End-to-end user scenarios,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-008,01_scope,Independent messenger UX design,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-009,01_scope,Design system and i18n,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-010,01_scope,Release sequencing and gates,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-011,02_architecture,Go/Vue/Flutter/Tauri monorepo,PARTIAL_OR_SCAFFOLD,Scaffold; modular Go runtime,Schema breadth does not demonstrate runtime support
+R-012,02_architecture,Go domain-process architecture,IMPLEMENTED_UNVERIFIED,Process-selectable Go domain handlers; not fully isolated,Schema breadth does not demonstrate runtime support
+R-013,02_architecture,Vue app bootstrap,PARTIAL_OR_SCAFFOLD,Six Vue application source projects,Schema breadth does not demonstrate runtime support
+R-014,02_architecture,Flutter mobile project,PARTIAL_OR_SCAFFOLD,Dart Flutter client source; native runners not generated,Schema breadth does not demonstrate runtime support
+R-015,02_architecture,Tauri desktop project,PARTIAL_OR_SCAFFOLD,Tauri/Rust scaffold; unverified,Schema breadth does not demonstrate runtime support
+R-016,02_architecture,REST gRPC and WebSocket contracts,PARTIAL_OR_SCAFFOLD,Protobuf and REST contract documents,Schema breadth does not demonstrate runtime support
+R-017,02_architecture,PostgreSQL ERD and schema,PARTIAL_OR_SCAFFOLD,Broad PostgreSQL SQL schema; DB run not verified,Schema breadth does not demonstrate runtime support
+R-018,02_architecture,Realtime WebSocket gateway,PARTIAL_OR_SCAFFOLD,In-process WebSocket hub; not distributed,Schema breadth does not demonstrate runtime support
+R-019,02_architecture,Database cache events and media infra,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-020,02_architecture,Local Docker and deployment bootstrap,PARTIAL_OR_SCAFFOLD,Docker Compose bootstrap; not runtime verified,Schema breadth does not demonstrate runtime support
+R-021,03_auth,Account registration,IMPLEMENTED_UNVERIFIED,Registration endpoint; no email verification,Schema breadth does not demonstrate runtime support
+R-022,03_auth,Login and logout,IMPLEMENTED_UNVERIFIED,Login endpoint; no token refresh,Schema breadth does not demonstrate runtime support
+R-023,03_auth,JWT and session model,IMPLEMENTED_UNVERIFIED,Signed JWT; missing lifecycle and MFA,Schema breadth does not demonstrate runtime support
+R-024,03_auth,Multi-device login and QR pairing,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-025,03_auth,Secure device storage and trust,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-026,03_auth,Account backup and restore,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-027,03_auth,User profile updates,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-028,03_auth,User search visibility settings,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-029,03_auth,Social graph data model,PARTIAL_OR_SCAFFOLD,Friendship/block SQL models,Schema breadth does not demonstrate runtime support
+R-030,03_auth,QR code friend adding,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-031,04_messaging,Friend search and creation,IMPLEMENTED_UNVERIFIED,User search/add/list friends implemented; no delete,Schema breadth does not demonstrate runtime support
+R-032,04_messaging,Device contacts matching,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-033,04_messaging,Block and abuse-prevention,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-034,04_messaging,Conversation list and unread states,IMPLEMENTED_UNVERIFIED,Conversation list and cursor,Schema breadth does not demonstrate runtime support
+R-035,04_messaging,Direct text chat,IMPLEMENTED_UNVERIFIED,Direct text send/read implemented,Schema breadth does not demonstrate runtime support
+R-036,04_messaging,Group chat and invitations,IMPLEMENTED_UNVERIFIED,Group creation implemented; member edits unimplemented,Schema breadth does not demonstrate runtime support
+R-037,04_messaging,Message idempotency and ordering,IMPLEMENTED_UNVERIFIED,Transactional ordered idempotent message creation,Schema breadth does not demonstrate runtime support
+R-038,04_messaging,Read receipts and cursor,IMPLEMENTED_UNVERIFIED,Read cursor API and unread count implemented,Schema breadth does not demonstrate runtime support
+R-039,04_messaging,Presence and typing indicators,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-040,04_messaging,Reply quote and forwarding,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-041,04_messaging,Message delete/edit and retract,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-042,04_messaging,Message reactions and pinning,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-043,04_messaging,Rich message types,IMPLEMENTED_UNVERIFIED,Plaintext messages only,Schema breadth does not demonstrate runtime support
+R-044,04_messaging,Media file transfer,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-045,04_messaging,Media processing pipeline,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-046,04_messaging,Location poll and event sharing,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-047,04_messaging,Group albums and notes,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-048,04_messaging,Chat text and attachment search,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-049,04_messaging,Self chat and saved items,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-050,04_messaging,Offline sync and reconciliation,IMPLEMENTED_UNVERIFIED,Local-only websocket sync; no offline queue,Schema breadth does not demonstrate runtime support
+R-051,05_call_security,Message retention and expiry,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-052,05_call_security,End-to-end encryption protocol,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-053,05_call_security,Multi-device E2EE key recovery,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-054,05_call_security,Push notification delivery,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-055,05_call_security,Voice calls,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-056,05_call_security,Video and group calls,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-057,05_call_security,Screen sharing,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-058,05_call_security,WebRTC quality and adaptation,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-059,05_call_security,PC native audio video,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-060,05_call_security,Call records and observability,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-061,06_clients_community,PC desktop chat UX,PARTIAL_OR_SCAFFOLD,Vue desktop-sized UI; Tauri not tested,Schema breadth does not demonstrate runtime support
+R-062,06_clients_community,Tray autostart desktop integration,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-063,06_clients_community,Flutter mobile chat UX,PARTIAL_OR_SCAFFOLD,Flutter chat UI source; not compiled,Schema breadth does not demonstrate runtime support
+R-064,06_clients_community,Accessibility and localization,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-065,06_clients_community,Sticker and emoji rendering,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-066,06_clients_community,Sticker store and payment,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-067,06_clients_community,Themes and personalization,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-068,06_clients_community,Premium subscription management,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-069,06_clients_community,Open community chat,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-070,06_clients_community,Community safety and moderation,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-071,07_business,Business official account registration,IMPLEMENTED_UNVERIFIED,Official account creation; review pending,Schema breadth does not demonstrate runtime support
+R-072,07_business,Business tenant roles,PARTIAL_OR_SCAFFOLD,Business organization membership RBAC,Schema breadth does not demonstrate runtime support
+R-073,07_business,Business support inbox,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-074,07_business,Campaign broadcast messaging,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-075,07_business,CRM audience and consent,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-076,07_business,Rich menu and structured messages,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-077,07_business,Automated bot workflows,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-078,07_business,Coupons loyalty and surveys,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-079,07_business,Business analytics dashboard,IMPLEMENTED_UNVERIFIED,"Global admin aggregate metrics only, not business analytics",Schema breadth does not demonstrate runtime support
+R-080,07_business,Business account review plans,IMPLEMENTED_UNVERIFIED,"Official accounts created in pending state, no review flow",Schema breadth does not demonstrate runtime support
+R-081,08_partner_platform,Developer organizations,IMPLEMENTED_UNVERIFIED,Developer organization/app creation + one-time credentials,Schema breadth does not demonstrate runtime support
+R-082,08_partner_platform,Messaging and bot API,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-083,08_partner_platform,Webhook and SDK delivery,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-084,08_partner_platform,OAuth and federation,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-085,08_partner_platform,MINI App platform,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-086,08_partner_platform,Advertiser campaigns,IMPLEMENTED_UNVERIFIED,"Advertiser and draft campaign CRUD, no ad delivery",Schema breadth does not demonstrate runtime support
+R-087,08_partner_platform,Commerce and payment,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-088,08_partner_platform,Creator sticker pack portal,IMPLEMENTED_UNVERIFIED,Creator profile/sticker pack draft CRUD,Schema breadth does not demonstrate runtime support
+R-089,08_partner_platform,Creator and advertising settlement,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-090,08_partner_platform,Partner operations unification,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-091,09_operations,Global super admin console,IMPLEMENTED_UNVERIFIED,Admin stats/users/reports read endpoints,Schema breadth does not demonstrate runtime support
+R-092,09_operations,Abuse reports and enforcement,IMPLEMENTED_UNVERIFIED,Report submission/list only; no enforcement,Schema breadth does not demonstrate runtime support
+R-093,09_operations,Privacy and application security,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-094,09_operations,Load and scale testing,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-095,09_operations,Observability and incident handling,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-096,09_operations,Automated unit integration and E2E tests,PARTIAL_OR_SCAFFOLD,Auth crypto unit tests; whole E2E unverified,Schema breadth does not demonstrate runtime support
+R-097,09_operations,CI/CD deployment rollback recovery,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-098,09_operations,Schema proto and API documentation,PARTIAL_OR_SCAFFOLD,"ERD, SQL, proto and REST docs",Schema breadth does not demonstrate runtime support
+R-099,09_operations,Independent full stack audit,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support
+R-100,09_operations,Commercial GO/NO-GO gate,NOT_IMPLEMENTED,Data-model/Proto reference only or not implemented,Schema breadth does not demonstrate runtime support

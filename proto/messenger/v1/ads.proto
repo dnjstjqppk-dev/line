@@ -1,0 +1,10 @@
+syntax = "proto3";
+package messenger.v1;
+option go_package = "github.com/example/global-messenger/backend/gen/messenger/v1;messengerv1";
+
+import "messenger/v1/common.proto";
+service AdsService { rpc CreateCampaign(CreateAdCampaignRequest) returns (AdCampaign); rpc ReviewCreative(ReviewAdCreativeRequest) returns (AdCreative); }
+message CreateAdCampaignRequest { string advertiser_id = 1; string name = 2; string objective = 3; Money daily_budget = 4; }
+message AdCampaign { string id = 1; string name = 2; string state = 3; }
+message ReviewAdCreativeRequest { string actor_id = 1; string creative_id = 2; string outcome = 3; }
+message AdCreative { string id = 1; string state = 2; }

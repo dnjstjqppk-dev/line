@@ -1,0 +1,35 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: messenger
+      POSTGRES_PASSWORD: messenger_local_only
+      POSTGRES_DB: messenger
+    ports: ["5432:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./database/001_all_phases.sql:/docker-entrypoint-initdb.d/001_all_phases.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U messenger -d messenger"]
+      interval: 3s
+      retries: 20
+  api:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgres://messenger:messenger_local_only@postgres:5432/messenger?sslmode=disable
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env (>=32 random bytes)}
+      SERVICE_NAME: gateway
+      PORT: 8080
+      ALLOWED_ORIGINS: http://localhost:5173,http://localhost:5174,http://localhost:5175,http://localhost:5176,http://localhost:5177,http://localhost:5178,http://localhost:1420
+    ports: ["8080:8080"]
+    depends_on:
+      postgres: {condition: service_healthy}
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+  nats:
+    image: nats:2.10-alpine
+    command: ["-js", "-m", "8222"]
+    ports: ["4222:4222", "8222:8222"]
+volumes:
+  pgdata:

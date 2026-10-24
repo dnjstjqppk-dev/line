@@ -1,0 +1,17 @@
+syntax = "proto3";
+package messenger.v1;
+option go_package = "github.com/example/global-messenger/backend/gen/messenger/v1;messengerv1";
+
+import "messenger/v1/common.proto";
+service IdentityService {
+ rpc Register(RegisterRequest) returns (IdentityUser);
+ rpc Login(LoginRequest) returns (TokenPair);
+ rpc ResolveSession(ResolveSessionRequest) returns (IdentityUser);
+ rpc RevokeDevice(RevokeDeviceRequest) returns (Empty);
+}
+message RegisterRequest { string email = 1; string password = 2; string display_name = 3; string locale = 4; }
+message LoginRequest { string email = 1; string password = 2; string device_id = 3; }
+message TokenPair { string access_token = 1; string refresh_token = 2; int64 expires_in = 3; }
+message ResolveSessionRequest { string access_token = 1; }
+message RevokeDeviceRequest { string actor_id = 1; string device_id = 2; }
+message IdentityUser { string id = 1; string email = 2; string display_name = 3; string role = 4; string state = 5; }

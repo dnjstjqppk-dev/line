@@ -1,0 +1,10 @@
+syntax = "proto3";
+package messenger.v1;
+option go_package = "github.com/example/global-messenger/backend/gen/messenger/v1;messengerv1";
+
+import "messenger/v1/common.proto";
+service CallingService { rpc StartCall(StartCallRequest) returns (Call); rpc Signal(CallSignal) returns (Empty); rpc EndCall(EndCallRequest) returns (Call); }
+message StartCallRequest { string actor_id = 1; string conversation_id = 2; string kind = 3; }
+message Call { string id = 1; string conversation_id = 2; string kind = 3; string state = 4; repeated string participant_ids = 5; }
+message CallSignal { string call_id = 1; string from_user_id = 2; string to_user_id = 3; string kind = 4; string sdp = 5; string ice_candidate_json = 6; }
+message EndCallRequest { string call_id = 1; string actor_id = 2; string reason = 3; }

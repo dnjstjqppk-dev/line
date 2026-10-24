@@ -1,0 +1,11 @@
+syntax = "proto3";
+package messenger.v1;
+option go_package = "github.com/example/global-messenger/backend/gen/messenger/v1;messengerv1";
+
+import "messenger/v1/common.proto";
+service CommunityService { rpc CreateRoom(CreateRoomRequest) returns (CommunityRoom); rpc JoinRoom(JoinRoomRequest) returns (Empty); rpc PublishPost(PublishPostRequest) returns (CommunityPost); }
+message CreateRoomRequest { string actor_id = 1; string name = 2; string visibility = 3; }
+message CommunityRoom { string id = 1; string name = 2; string visibility = 3; }
+message JoinRoomRequest { string actor_id = 1; string room_id = 2; string nickname = 3; }
+message PublishPostRequest { string actor_id = 1; string room_id = 2; string body = 3; }
+message CommunityPost { string id = 1; string room_id = 2; string body = 3; }

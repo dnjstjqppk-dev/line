@@ -1,0 +1,12 @@
+syntax = "proto3";
+package messenger.v1;
+option go_package = "github.com/example/global-messenger/backend/gen/messenger/v1;messengerv1";
+
+import "messenger/v1/common.proto";
+service SafetyService { rpc FileReport(FileReportRequest) returns (SafetyReport); rpc TakeAction(TakeActionRequest) returns (ModerationAction); rpc Appeal(AppealRequest) returns (SafetyAppeal); }
+message FileReportRequest { string reporter_id = 1; string subject_user_id = 2; string category = 3; string details = 4; }
+message SafetyReport { string id = 1; string state = 2; string category = 3; }
+message TakeActionRequest { string actor_id = 1; string report_id = 2; string action = 3; string reason = 4; }
+message ModerationAction { string id = 1; string action = 2; }
+message AppealRequest { string actor_id = 1; string action_id = 2; string explanation = 3; }
+message SafetyAppeal { string id = 1; string state = 2; }
