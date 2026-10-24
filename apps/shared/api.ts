@@ -1,4 +1,23 @@
-export const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080'
+function resolveApiUrl(): string {
+  if (import.meta.env.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL
+  }
+  if (typeof window !== 'undefined') {
+    // When hosted on Cloudflare (or any remote domain), use same origin so API goes to Cloudflare Worker
+    if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+      return window.location.origin
+    }
+    // When developing locally with Vite on port 5173, point to local Go server on port 8080
+    if (window.location.port === '5173') {
+      return 'http://localhost:8080'
+    }
+    return window.location.origin
+  }
+  return 'http://localhost:8080'
+}
+
+export const API_URL = resolveApiUrl()
+
 export type LoginResult = {
   access_token: string
   refresh_token?: string
@@ -52,5 +71,8 @@ export function newClientID(): string {
   return crypto.randomUUID()
 }
 export function wsURL(ticket: string): string {
-  return API_URL.replace(/^http/, 'ws') + '/api/v1/ws?ticket=' + encodeURIComponent(ticket)
+  const base = API_URL.startsWith('http')
+    ? API_URL.replace(/^http/, 'ws')
+    : `${typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${typeof window !== 'undefined' ? window.location.host : 'localhost:8080'}`
+  return base + '/api/v1/ws?ticket=' + encodeURIComponent(ticket)
 }

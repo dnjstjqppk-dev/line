@@ -48,3 +48,4 @@ for (const sub of subApps) {
 }
 
 console.log('✅ Combined Cloudflare distribution prepared in ./dist_cf');
+

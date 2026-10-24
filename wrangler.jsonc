@@ -1,11 +1,13 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "line-messenger",
+  "main": "scripts/cf_worker.js",
   "compatibility_date": "2026-01-01",
   "build": {
     "command": "node scripts/build_cf.js"
   },
   "assets": {
-    "directory": "./dist_cf"
+    "directory": "./dist_cf",
+    "binding": "ASSETS"
   }
 }
