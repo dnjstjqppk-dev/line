@@ -229,13 +229,23 @@ onBeforeUnmount(() => { if (socket) socket.close() })
   <header>
     <strong>Global Messenger</strong>
     <span class="muted">실시간 멀티 디바이스 메신저 · Web & PC & Mobile</span>
-    <button v-if="token" @click="logout">로그아웃</button>
+    <nav class="console-nav" style="display:flex;gap:10px;margin-left:auto;align-items:center;font-size:13px">
+      <a href="./admin/" target="_blank" style="text-decoration:none;color:#06754e;font-weight:600">관리자</a>
+      <a href="./partner/" target="_blank" style="text-decoration:none;color:#06754e;font-weight:600">파트너</a>
+      <a href="./developer/" target="_blank" style="text-decoration:none;color:#06754e;font-weight:600">개발자</a>
+      <a href="./creator/" target="_blank" style="text-decoration:none;color:#06754e;font-weight:600">크리에이터</a>
+      <a href="./ads/" target="_blank" style="text-decoration:none;color:#06754e;font-weight:600">광고주</a>
+      <button v-if="token" @click="logout" style="margin-left:8px">로그아웃</button>
+    </nav>
   </header>
   <div v-if="error" role="alert" class="error">{{ error }}</div>
   <p v-if="note" class="note">{{ note }}</p>
 
   <main v-if="!currentUser" class="auth card">
     <h2>{{ registerMode ? '회원가입' : '로그인' }}</h2>
+    <div style="margin:10px 0;padding:8px 12px;background:#eef5fc;border-radius:8px;font-size:12px;color:#2c5282">
+      <strong>💡 기본 데모 계정:</strong> <code>user@line.local</code> / <code>LineUser#2026!</code>
+    </div>
     <form @submit.prevent="authAction">
       <label>이메일 <input v-model="email" required type="email" autocomplete="username" /></label>
       <label v-if="registerMode">이름 <input v-model="displayName" required /></label>

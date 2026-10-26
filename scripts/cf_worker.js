@@ -421,6 +421,13 @@ export default {
       return json({ status: 'ok', endpoint: p });
     }
 
+    // Sub-console route redirects
+    for (const sub of ['admin', 'partner', 'developer', 'creator', 'ads']) {
+      if (url.pathname === `/${sub}`) {
+        return Response.redirect(`${url.origin}/${sub}/`, 301);
+      }
+    }
+
     // Static Assets fallback (Vite distribution)
     if (env.ASSETS) {
       return env.ASSETS.fetch(request);
@@ -429,3 +436,4 @@ export default {
     return new Response('Cloudflare Edge Worker Ready', { status: 200 });
   }
 };
+
