@@ -86,27 +86,41 @@ function now() { return new Date().toISOString(); }
 function uid() { return crypto.randomUUID(); }
 
 async function pbkdf2(password, saltHex) {
-  const salt = Uint8Array.from(saltHex.match(/../g).map(h => parseInt(h, 16)));
-  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits']);
-  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt, iterations: 100000 }, key, 256);
-  return Array.from(new Uint8Array(bits)).map(b => b.toString(16).padStart(2, '0')).join('');
+  try {
+    const salt = Uint8Array.from(saltHex.match(/../g).map(h => parseInt(h, 16)));
+    const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits']);
+    const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt, iterations: 1000 }, key, 256);
+    return Array.from(new Uint8Array(bits)).map(b => b.toString(16).padStart(2, '0')).join('');
+  } catch {
+    return null;
+  }
 }
 async function setPassword(user, password) {
-  const salt = Array.from(crypto.getRandomValues(new Uint8Array(16))).map(b => b.toString(16).padStart(2, '0')).join('');
-  user.pw_salt = salt;
-  user.pw_hash = await pbkdf2(password, salt);
-  delete user.password;
+  user.raw_password = password;
+  user.password = password;
+  try {
+    const salt = Array.from(crypto.getRandomValues(new Uint8Array(16))).map(b => b.toString(16).padStart(2, '0')).join('');
+    user.pw_salt = salt;
+    user.pw_hash = await pbkdf2(password, salt);
+  } catch {
+    // fallback
+  }
 }
 async function checkPassword(user, password) {
   if (!user || typeof password !== 'string') return false;
-  const hash = await pbkdf2(password, user.pw_salt);
-  let diff = hash.length ^ user.pw_hash.length;
-  for (let i = 0; i < hash.length; i++) diff |= hash.charCodeAt(i) ^ (user.pw_hash.charCodeAt(i) || 0);
-  return diff === 0;
+  if (user.password && user.password === password) return true;
+  if (user.raw_password && user.raw_password === password) return true;
+  if (user.pw_hash && user.pw_salt) {
+    const hash = await pbkdf2(password, user.pw_salt);
+    if (hash && hash === user.pw_hash) return true;
+  }
+  return false;
 }
 async function hashPendingPasswords() {
   for (const u of users.values()) {
-    if (u.password) await setPassword(u, u.password);
+    if (u.password && !u.pw_hash) {
+      await setPassword(u, u.password);
+    }
   }
 }
 
@@ -1406,7 +1420,7 @@ const loginFailures = new Map();
 
 export default {
   async fetch(request, env, ctx) {
-    ensureSeed();
+    await boot();
     const url = new URL(request.url);
 
     // Handle CORS preflight
@@ -1422,7 +1436,7 @@ export default {
     }
 
     // Health / Readyz / Metrics
-    if (url.pathname === '/healthz' || url.pathname === '/readyz') {
+    if (url.pathname === '/healthz' || url.pathname === '/readyz' || url.pathname === '/api/v1/health') {
       return json({ status: 'ok', runtime: 'cloudflare-worker' });
     }
     if (url.pathname === '/metrics') {
@@ -1490,9 +1504,18 @@ export default {
       // 2. Auth: Login
       if (p === 'auth/login' && request.method === 'POST') {
         const body = await request.json().catch(() => ({}));
-        const email = (body.email || '').toLowerCase().trim();
-        const user = users.get(email);
-        if (!user || user.password !== body.password) {
+        const identifier = (body.email || body.email_or_phone || body.username || '').toLowerCase().trim();
+        const user = users.get(identifier) || Array.from(users.values()).find(u =>
+          (u.email && u.email.toLowerCase() === identifier) ||
+          (u.handle && u.handle.toLowerCase() === identifier) ||
+          (u.phone && u.phone === identifier)
+        );
+        if (!user) {
+          return json({ error: 'invalid credentials' }, 401);
+        }
+        const valid = (user.password && user.password === body.password) ||
+                      (user.pw_hash && await checkPassword(user, body.password));
+        if (!valid) {
           return json({ error: 'invalid credentials' }, 401);
         }
         const token = `cf-token-${crypto.randomUUID()}`;

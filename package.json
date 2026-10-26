@@ -13,6 +13,8 @@
   "scripts": {
     "build": "node scripts/build_cf.js",
     "deploy": "wrangler deploy",
+    "auto:deploy": "node scripts/watch_rebuild.js",
+    "rebuild:deploy": "node scripts/build_cf.js && wrangler deploy",
     "dev:user": "npm run dev -w @messenger/user-web",
     "dev:admin": "npm run dev -w @messenger/admin-console",
     "dev:partner": "npm run dev -w @messenger/partner-console",
