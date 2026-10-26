@@ -307,6 +307,7 @@ func (a *App) Handler() http.Handler {
 		mux.HandleFunc("GET /api/v1/conversations/{id}/albums", a.withAuth(a.listAlbums))
 		mux.HandleFunc("POST /api/v1/saved-messages", a.withAuth(a.saveMessage))
 		mux.HandleFunc("GET /api/v1/saved-messages", a.withAuth(a.listSavedMessages))
+		mux.HandleFunc("DELETE /api/v1/saved-messages/{id}", a.withAuth(a.deleteSavedMessage))
 		mux.HandleFunc("GET /api/v1/search", a.withAuth(a.unifiedSearch))
 	}
 	if active("realtime", "presence", "notification") {

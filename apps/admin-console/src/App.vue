@@ -41,7 +41,7 @@ async function load() {
   })
 }
 
-async function takeAction(subjectUserID: string, action: 'warn' | 'suspend' | 'activate', reportID = '') {
+async function takeAction(subjectUserID: string, action: 'warn' | 'suspend' | 'activate' | 'dismiss', reportID = '') {
   await run(async () => {
     await request('/api/v1/admin/moderation/actions', token.value, 'POST', {
       subject_user_id: subjectUserID,
@@ -49,7 +49,7 @@ async function takeAction(subjectUserID: string, action: 'warn' | 'suspend' | 'a
       action,
       reason: `Admin console ${action} action`,
     })
-    note.value = `사용자 ${subjectUserID}에 대해 ${action} 조치가 완료되었습니다.`
+    note.value = `조치 (${action})가 완료되었습니다.`
     await load()
   })
 }
@@ -72,6 +72,17 @@ async function saveFeatureFlag() {
 
 <template>
   <div class="page">
+    <nav style="display:flex;gap:12px;margin-bottom:18px;padding:10px 14px;background:#fff;border-radius:10px;font-size:13px;align-items:center;border:1px solid #e0e8ee">
+      <a href="../" style="text-decoration:none;color:#06754e;font-weight:700">💬 메신저 홈</a>
+      <span style="color:#ccc">|</span>
+      <a href="../admin/" style="text-decoration:none;color:#a83232;font-weight:700">👑 관리자</a>
+      <a href="../partner/" style="text-decoration:none;color:#334155;font-weight:600">🏢 파트너</a>
+      <a href="../developer/" style="text-decoration:none;color:#334155;font-weight:600">💻 개발자</a>
+      <a href="../creator/" style="text-decoration:none;color:#334155;font-weight:600">🎨 크리에이터</a>
+      <a href="../ads/" style="text-decoration:none;color:#334155;font-weight:600">📢 광고주</a>
+      <button v-if="token" @click="token = ''" style="margin-left:auto;padding:4px 8px;font-size:12px">로그아웃</button>
+    </nav>
+
     <header>
       <h1>Messenger 슈퍼 관리자 센터</h1>
       <span>역할: platform_admin · support · moderator</span>
@@ -133,10 +144,11 @@ async function saveFeatureFlag() {
         <p v-if="!reports.length">접수된 미처리 신고가 없습니다.</p>
         <div v-for="r in reports" :key="r.id" class="report-item">
           <div>
-            <strong>[{{ r.category }}]</strong> 상태: {{ r.state }} — {{ r.details }}
+            <strong>[{{ r.category }}]</strong> 상태: <span class="badge">{{ r.state }}</span> — {{ r.details }}
           </div>
-          <div v-if="r.state === 'open'">
-            <button style="background:#d9534f;font-size:12px;padding:4px 8px" @click="takeAction(r.subject_user_id || '', 'suspend', r.id)">피신고자 정지 및 해결</button>
+          <div v-if="r.state === 'open'" style="display:flex;gap:6px">
+            <button style="background:#d9534f;font-size:12px;padding:4px 8px" @click="takeAction(r.subject_user_id || '', 'suspend', r.id)">피신고자 정지</button>
+            <button style="background:#6c757d;font-size:12px;padding:4px 8px" @click="takeAction(r.subject_user_id || '', 'dismiss', r.id)">기각</button>
           </div>
         </div>
       </section>

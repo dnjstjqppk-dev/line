@@ -63,12 +63,26 @@ async function addStickerItem() {
 
 <template>
   <main>
+    <nav style="display:flex;gap:12px;margin-bottom:18px;padding-bottom:12px;border-bottom:1px solid #e2e8f0;font-size:13px;align-items:center">
+      <a href="../" style="text-decoration:none;color:#06754e;font-weight:700">💬 메신저 홈</a>
+      <span style="color:#ccc">|</span>
+      <a href="../admin/" style="text-decoration:none;color:#334155;font-weight:600">👑 관리자</a>
+      <a href="../partner/" style="text-decoration:none;color:#334155;font-weight:600">🏢 파트너</a>
+      <a href="../developer/" style="text-decoration:none;color:#334155;font-weight:600">💻 개발자</a>
+      <a href="../creator/" style="text-decoration:none;color:#096b52;font-weight:700">🎨 크리에이터</a>
+      <a href="../ads/" style="text-decoration:none;color:#334155;font-weight:600">📢 광고주</a>
+      <button v-if="token" @click="token = ''" style="margin-left:auto;padding:4px 8px;font-size:12px">로그아웃</button>
+    </nav>
+
     <h1>Creator Market Center</h1>
     <p>크리에이터 프로필 · 스티커/이모티콘 팩 등록 · 개별 스티커 에셋 업로드 · 판매 정산 원장</p>
     <p role="alert" class="error" v-if="error">{{ error }}</p>
     <p class="note" v-if="message">{{ message }}</p>
 
     <form v-if="!token" @submit.prevent="login">
+      <div style="margin:8px 0;padding:8px 12px;background:#eef5fc;border-radius:8px;font-size:12px;color:#2c5282">
+        <strong>💡 기본 계정:</strong> <code>admin@line.local</code> / <code>LineAdmin#2026!</code> 또는 <code>user@line.local</code> / <code>LineUser#2026!</code>
+      </div>
       <input type="email" v-model="email" placeholder="이메일" required />
       <input v-model="password" type="password" placeholder="비밀번호" required />
       <button>로그인</button>

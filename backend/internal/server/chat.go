@@ -675,6 +675,20 @@ func (a *App) saveMessage(w http.ResponseWriter, r *http.Request) {
 	send(w, 201, map[string]string{"status": "saved", "message_id": in.MessageID})
 }
 
+func (a *App) deleteSavedMessage(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if !auth.ValidUUID(id) {
+		fail(w, 400, "invalid id")
+		return
+	}
+	_, e := a.db.ExecContext(r.Context(), "DELETE FROM chat.saved_messages WHERE user_id=$1 AND message_id=$2", claims(r).Subject, id)
+	if e != nil {
+		fail(w, 500, "delete saved message failed")
+		return
+	}
+	send(w, 200, map[string]string{"status": "deleted", "message_id": id})
+}
+
 func (a *App) listSavedMessages(w http.ResponseWriter, r *http.Request) {
 	rows, e := a.db.QueryContext(r.Context(),
 		"SELECT m.id,m.conversation_id,m.body,s.saved_at FROM chat.saved_messages s JOIN chat.messages m ON m.id=s.message_id WHERE s.user_id=$1 ORDER BY s.saved_at DESC",

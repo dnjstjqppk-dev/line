@@ -33,6 +33,16 @@ export type User = {
   handle?: string
   bio?: string
   role?: string
+  status_message?: string
+  avatar_color?: string
+  avatar_url?: string
+  birthday?: string
+  birthday_today?: boolean
+  is_favorite?: boolean
+  is_hidden?: boolean
+  is_blocked?: boolean
+  nickname?: string
+  official?: boolean
 }
 export type Chat = {
   id: string
@@ -41,6 +51,22 @@ export type Chat = {
   last_sequence: number
   last_read_sequence?: number
   unread_count: number
+  pinned?: boolean
+  muted?: boolean
+  hidden?: boolean
+  notice?: string
+  official?: boolean
+  member_count?: number
+  members?: User[]
+  updated_at?: string
+  last_message?: {
+    id: string
+    kind: string
+    body: string
+    unsent?: boolean
+    sender_id: string
+    created_at: string
+  } | null
 }
 export type Message = {
   id: string
@@ -53,6 +79,16 @@ export type Message = {
   reply_to?: string
   metadata?: Record<string, unknown>
   created_at: string
+  unsent?: boolean
+  read_count?: number
+  reactions?: Record<string, number>
+  my_reactions?: string[]
+  reply_preview?: {
+    sender_id: string
+    kind: string
+    body: string
+    unsent?: boolean
+  }
 }
 export async function request<T>(path: string, token: string | null = null, method = 'GET', body?: unknown): Promise<T> {
   const resp = await fetch(API_URL + path, {

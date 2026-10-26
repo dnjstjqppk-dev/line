@@ -91,7 +91,7 @@
 |---|---|---|---|---|
 | 061 | Desktop Chat UI/UX | Split-view layout, QR login, group chat, calling, attachment send | `apps/user-web` | VERIFIED_PASS |
 | 062 | Native OS Integrations | Tauri 2 Rust IPC commands for unread badge & platform capabilities | `desktop/user-desktop` | IMPLEMENTED_UNVERIFIED |
-| 063 | Full Mobile Experience | Flutter Material 3 messenger client with secure token storage & WebSocket | `mobile/flutter_app` | IMPLEMENTED_UNVERIFIED |
+| 063 | Full Mobile Experience | Flutter Material 3 messenger client with secure token storage & WebSocket (`flutter test` PASS) | `mobile/flutter_app` | VERIFIED_PASS |
 | 064 | Accessibility & A11y | ARIA live regions (`role="log"`, `aria-live="polite"`, `role="alert"`), form labels | `apps/*` | VERIFIED_PASS |
 | 065 | Sticker Engine & APNG/Lottie | Sticker message kind (`kind='sticker'`) and creator sticker item catalog | `chat.go`, `creator.go` | VERIFIED_PASS |
 | 066 | Sticker Store | Sticker pack catalog & purchase (`GET /api/v1/store/stickers`, `POST /api/v1/store/orders`) | `calling_media.go` | VERIFIED_PASS |

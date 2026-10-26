@@ -79,12 +79,26 @@ async function registerMiniApp() {
 
 <template>
   <main>
+    <nav style="display:flex;gap:12px;margin-bottom:18px;padding-bottom:12px;border-bottom:1px solid #e2e8f0;font-size:13px;align-items:center">
+      <a href="../" style="text-decoration:none;color:#06754e;font-weight:700">💬 메신저 홈</a>
+      <span style="color:#ccc">|</span>
+      <a href="../admin/" style="text-decoration:none;color:#334155;font-weight:600">👑 관리자</a>
+      <a href="../partner/" style="text-decoration:none;color:#334155;font-weight:600">🏢 파트너</a>
+      <a href="../developer/" style="text-decoration:none;color:#165dd8;font-weight:700">💻 개발자</a>
+      <a href="../creator/" style="text-decoration:none;color:#334155;font-weight:600">🎨 크리에이터</a>
+      <a href="../ads/" style="text-decoration:none;color:#334155;font-weight:600">📢 광고주</a>
+      <button v-if="token" @click="token = ''" style="margin-left:auto;padding:4px 8px;font-size:12px">로그아웃</button>
+    </nav>
+
     <h1>Developer Center</h1>
     <p>개발자 조직 · Messaging API 앱 · Webhook 발송 엔진 · Mini App 플랫폼</p>
     <p class="error" role="alert" v-if="error">{{ error }}</p>
     <p class="note" v-if="note">{{ note }}</p>
 
     <form @submit.prevent="login" v-if="!token">
+      <div style="margin:8px 0;padding:8px 12px;background:#eef5fc;border-radius:8px;font-size:12px;color:#2c5282">
+        <strong>💡 기본 계정:</strong> <code>admin@line.local</code> / <code>LineAdmin#2026!</code> 또는 <code>user@line.local</code> / <code>LineUser#2026!</code>
+      </div>
       <input v-model="email" type="email" placeholder="이메일" required />
       <input v-model="password" type="password" placeholder="비밀번호" required />
       <button>로그인</button>

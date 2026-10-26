@@ -305,6 +305,20 @@ class _HomeState extends State<Home> {
     if (error.isNotEmpty) message.text = text;
   }
 
+  Future<void> _react(String msgId, String emoji) async {
+    _do(() async {
+      await api.call('/api/v1/conversations/$selectedId/messages/$msgId/reactions', method: 'POST', data: {'reaction': emoji});
+      setState(() => notice = '$emoji 리액션을 남겼습니다.');
+    });
+  }
+
+  Future<void> _pin(String msgId) async {
+    _do(() async {
+      await api.call('/api/v1/conversations/$selectedId/pins', method: 'POST', data: {'message_id': msgId});
+      setState(() => notice = '상단에 고정했습니다.');
+    });
+  }
+
   Future<void> _logout() async {
     await wsSubscription?.cancel();
     await socket?.sink.close();
@@ -384,6 +398,12 @@ class _HomeState extends State<Home> {
                       padding: const EdgeInsets.all(18),
                       child: Column(mainAxisSize: MainAxisSize.min, children: [
                         Text(register ? '회원가입' : '로그인', style: Theme.of(context).textTheme.titleLarge),
+                        Container(
+                          margin: const EdgeInsets.symmetric(vertical: 8),
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(color: Colors.green.shade50, borderRadius: BorderRadius.circular(8)),
+                          child: const Text('💡 데모 계정: user@line.local / LineUser#2026!', style: TextStyle(fontSize: 12, color: Colors.green)),
+                        ),
                         TextField(controller: email, decoration: const InputDecoration(labelText: '이메일')),
                         if (register) TextField(controller: name, decoration: const InputDecoration(labelText: '표시 이름')),
                         TextField(
@@ -480,7 +500,15 @@ class _HomeState extends State<Home> {
                               if (m['reply_to'] != null && '${m['reply_to']}'.isNotEmpty)
                                 const Text('↩ 답장', style: TextStyle(fontSize: 10, color: Colors.grey)),
                               Text('${m['body']}'),
-                              Text('#${m['sequence']}', style: const TextStyle(fontSize: 9, color: Colors.grey)),
+                              Row(mainAxisSize: MainAxisSize.min, children: [
+                                Text('#${m['sequence']}', style: const TextStyle(fontSize: 9, color: Colors.grey)),
+                                const SizedBox(width: 8),
+                                InkWell(onTap: () => _react(m['id'], '👍'), child: const Text('👍', style: TextStyle(fontSize: 12))),
+                                const SizedBox(width: 4),
+                                InkWell(onTap: () => _react(m['id'], '❤️'), child: const Text('❤️', style: TextStyle(fontSize: 12))),
+                                const SizedBox(width: 4),
+                                InkWell(onTap: () => _pin(m['id']), child: const Icon(Icons.push_pin, size: 12, color: Colors.grey)),
+                              ]),
                             ]),
                           ),
                         ),
