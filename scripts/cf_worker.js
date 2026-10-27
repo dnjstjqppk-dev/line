@@ -895,6 +895,8 @@ async function extended(p, request, url, me, token) {
   }
   if ((m = p.match(/^conversations\/([\w-]+)\/pins$/))) {
     const cid = m[1];
+    const conv = conversations.get(cid);
+    if (!conv || !conv.members.includes(myId)) return bad('대화방을 찾을 수 없거나 접근 권한이 없습니다', 404);
     const pins = pinnedMessages.get(cid) || [];
     const view = () => pins.map(x => {
       const src = (messages.get(cid) || []).find(y => y.id === x.message_id);
@@ -912,11 +914,15 @@ async function extended(p, request, url, me, token) {
     }
   }
   if ((m = p.match(/^conversations\/([\w-]+)\/pins\/([\w-]+)$/)) && method === 'DELETE') {
+    const conv = conversations.get(m[1]);
+    if (!conv || !conv.members.includes(myId)) return bad('대화방을 찾을 수 없거나 접근 권한이 없습니다', 404);
     pinnedMessages.set(m[1], (pinnedMessages.get(m[1]) || []).filter(x => x.message_id !== m[2]));
     broadcast({ type: 'conversation.pins', conversation_id: m[1] });
     return json({ status: 'unpinned' });
   }
   if ((m = p.match(/^conversations\/([\w-]+)\/media$/)) && method === 'GET') {
+    const conv = conversations.get(m[1]);
+    if (!conv || !conv.members.includes(myId)) return bad('대화방을 찾을 수 없거나 접근 권한이 없습니다', 404);
     const kind = url.searchParams.get('kind') || 'image';
     const hs = hiddenMsgs.get(myId);
     const list = (messages.get(m[1]) || []).filter(x => !x.unsent && !(hs && hs.has(x.id)));
@@ -927,6 +933,8 @@ async function extended(p, request, url, me, token) {
     return json({ items: out.slice(-100).reverse().map(x => decorateMessage(x, myId, m[1])) });
   }
   if ((m = p.match(/^conversations\/([\w-]+)\/search$/)) && method === 'GET') {
+    const conv = conversations.get(m[1]);
+    if (!conv || !conv.members.includes(myId)) return bad('대화방을 찾을 수 없거나 접근 권한이 없습니다', 404);
     const q = clip(url.searchParams.get('q') || '', 100).toLowerCase();
     if (q.length < 1) return json({ messages: [] });
     const hs = hiddenMsgs.get(myId);
@@ -937,6 +945,8 @@ async function extended(p, request, url, me, token) {
   // ---------- Polls, notes, events, albums ----------
   if ((m = p.match(/^conversations\/([\w-]+)\/polls$/))) {
     const cid = m[1];
+    const conv = conversations.get(cid);
+    if (!conv || !conv.members.includes(myId)) return bad('대화방을 찾을 수 없거나 접근 권한이 없습니다', 404);
     if (method === 'GET') return json({ polls: Array.from(polls.values()).filter(x => x.conversation_id === cid).map(x => pollView(x, myId)) });
     if (method === 'POST') {
       const b = await readJson(request);
@@ -975,6 +985,8 @@ async function extended(p, request, url, me, token) {
   }
   if ((m = p.match(/^conversations\/([\w-]+)\/notes$/))) {
     const cid = m[1];
+    const conv = conversations.get(cid);
+    if (!conv || !conv.members.includes(myId)) return bad('대화방을 찾을 수 없거나 접근 권한이 없습니다', 404);
     const list = noteStore.get(cid) || [];
     if (method === 'GET') return json({ notes: list.map(n => ({ ...n, author: userBrief(n.author_id) })) });
     if (method === 'POST') {
@@ -989,6 +1001,7 @@ async function extended(p, request, url, me, token) {
   }
   if ((m = p.match(/^conversations\/([\w-]+)\/notes\/([\w-]+)$/)) && method === 'DELETE') {
     const conv = conversations.get(m[1]);
+    if (!conv || !conv.members.includes(myId)) return bad('대화방을 찾을 수 없거나 접근 권한이 없습니다', 404);
     const list = noteStore.get(m[1]) || [];
     const note = list.find(n => n.id === m[2]);
     if (!note) return bad('노트를 찾을 수 없습니다', 404);
@@ -998,6 +1011,8 @@ async function extended(p, request, url, me, token) {
   }
   if ((m = p.match(/^conversations\/([\w-]+)\/events$/))) {
     const cid = m[1];
+    const conv = conversations.get(cid);
+    if (!conv || !conv.members.includes(myId)) return bad('대화방을 찾을 수 없거나 접근 권한이 없습니다', 404);
     const list = eventStore.get(cid) || [];
     const view = e => ({ ...e, rsvps: Object.fromEntries(e.rsvps), my_rsvp: e.rsvps.get(myId) || '', creator: userBrief(e.created_by) });
     if (method === 'GET') return json({ events: list.map(view) });
@@ -1015,6 +1030,8 @@ async function extended(p, request, url, me, token) {
     }
   }
   if ((m = p.match(/^conversations\/([\w-]+)\/events\/([\w-]+)\/rsvp$/)) && method === 'POST') {
+    const conv = conversations.get(m[1]);
+    if (!conv || !conv.members.includes(myId)) return bad('대화방을 찾을 수 없거나 접근 권한이 없습니다', 404);
     const ev = (eventStore.get(m[1]) || []).find(e => e.id === m[2]);
     if (!ev) return bad('일정을 찾을 수 없습니다', 404);
     const b = await readJson(request);
@@ -1024,6 +1041,8 @@ async function extended(p, request, url, me, token) {
   }
   if ((m = p.match(/^conversations\/([\w-]+)\/albums$/))) {
     const cid = m[1];
+    const conv = conversations.get(cid);
+    if (!conv || !conv.members.includes(myId)) return bad('대화방을 찾을 수 없거나 접근 권한이 없습니다', 404);
     const list = albums.get(cid) || [];
     if (method === 'GET') return json({ albums: list });
     if (method === 'POST') {

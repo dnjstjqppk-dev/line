@@ -125,10 +125,10 @@ async function createRichMenu() {
 <template>
   <div class="wrap">
     <nav style="display:flex;gap:12px;margin-bottom:18px;padding:10px 14px;background:#fff;border-radius:10px;font-size:13px;align-items:center;border:1px solid #e0e8ee">
-      <a href="../" style="text-decoration:none;color:#06754e;font-weight:700">💬 메신저 홈</a>
+      <a href="../" style="text-decoration:none;color:#06C755;font-weight:700">💬 LINE 메신저 홈</a>
       <span style="color:#ccc">|</span>
       <a href="../admin/" style="text-decoration:none;color:#334155;font-weight:600">👑 관리자</a>
-      <a href="../partner/" style="text-decoration:none;color:#06754e;font-weight:700">🏢 파트너</a>
+      <a href="../partner/" style="text-decoration:none;color:#06C755;font-weight:700">🏢 파트너</a>
       <a href="../developer/" style="text-decoration:none;color:#334155;font-weight:600">💻 개발자</a>
       <a href="../creator/" style="text-decoration:none;color:#334155;font-weight:600">🎨 크리에이터</a>
       <a href="../ads/" style="text-decoration:none;color:#334155;font-weight:600">📢 광고주</a>

@@ -73,7 +73,7 @@ async function saveFeatureFlag() {
 <template>
   <div class="page">
     <nav style="display:flex;gap:12px;margin-bottom:18px;padding:10px 14px;background:#fff;border-radius:10px;font-size:13px;align-items:center;border:1px solid #e0e8ee">
-      <a href="../" style="text-decoration:none;color:#06754e;font-weight:700">💬 메신저 홈</a>
+      <a href="../" style="text-decoration:none;color:#06C755;font-weight:700">💬 LINE 메신저 홈</a>
       <span style="color:#ccc">|</span>
       <a href="../admin/" style="text-decoration:none;color:#a83232;font-weight:700">👑 관리자</a>
       <a href="../partner/" style="text-decoration:none;color:#334155;font-weight:600">🏢 파트너</a>

@@ -74,7 +74,7 @@ async function addAdGroup() {
 <template>
   <main>
     <nav style="display:flex;gap:12px;margin-bottom:18px;padding-bottom:12px;border-bottom:1px solid #e2e8f0;font-size:13px;align-items:center">
-      <a href="../" style="text-decoration:none;color:#06754e;font-weight:700">💬 메신저 홈</a>
+      <a href="../" style="text-decoration:none;color:#06C755;font-weight:700">💬 LINE 메신저 홈</a>
       <span style="color:#ccc">|</span>
       <a href="../admin/" style="text-decoration:none;color:#334155;font-weight:600">👑 관리자</a>
       <a href="../partner/" style="text-decoration:none;color:#334155;font-weight:600">🏢 파트너</a>

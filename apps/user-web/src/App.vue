@@ -324,15 +324,18 @@ async function loadStoreCatalog() {
 }
 
 // --- Chat Actions ---
+let chatSelectVersion = 0
 async function selectChat(convId: string) {
   selectedChatId.value = convId
   replyToMessage.value = null
   activeDrawer.value = 'none'
+  const version = ++chatSelectVersion
   await wrap(async () => {
     const [msgRes, pinsRes] = await Promise.all([
       api<{ messages: Message[] }>(`/api/v1/conversations/${convId}/messages?limit=50`),
       api<{ pins: any[] }>(`/api/v1/conversations/${convId}/pins`)
     ])
+    if (selectedChatId.value !== convId || version !== chatSelectVersion) return
     messages.value = msgRes.messages || []
     pinnedList.value = pinsRes.pins || []
     if (messages.value.length > 0) {
@@ -354,17 +357,25 @@ async function loadPolls(convId: string) {
   } catch {}
 }
 
+let noteLoadVersion = 0
 async function loadNotes(convId: string) {
+  const version = ++noteLoadVersion
   try {
     const res = await api<{ notes: any[] }>(`/api/v1/conversations/${convId}/notes`)
-    chatNotes.value = res.notes || []
+    if (selectedChatId.value === convId && version === noteLoadVersion) {
+      chatNotes.value = res.notes || []
+    }
   } catch {}
 }
 
+let eventLoadVersion = 0
 async function loadEvents(convId: string) {
+  const version = ++eventLoadVersion
   try {
     const res = await api<{ events: any[] }>(`/api/v1/conversations/${convId}/events`)
-    chatEvents.value = res.events || []
+    if (selectedChatId.value === convId && version === eventLoadVersion) {
+      chatEvents.value = res.events || []
+    }
   } catch {}
 }
 

@@ -95,6 +95,34 @@ test('private chat access and one-use realtime tickets', async () => {
   assert.equal((await api(`polls/${poll.id}/vote`, bob, 'POST', { option_id: 'opt-0' })).status, 400);
   assert.equal(sockets[2].events.length, 0);
 
+  // Security audit: Non-member access to sub-resources must return 404
+  assert.equal((await api(`conversations/${cid}/pins`, outsider)).status, 404);
+  assert.equal((await api(`conversations/${cid}/media`, outsider)).status, 404);
+  assert.equal((await api(`conversations/${cid}/search?q=test`, outsider)).status, 404);
+  assert.equal((await api(`conversations/${cid}/notes`, outsider)).status, 404);
+  assert.equal((await api(`conversations/${cid}/events`, outsider)).status, 404);
+  assert.equal((await api(`conversations/${cid}/albums`, outsider)).status, 404);
+
+  // Relay notes: creation by member, listing by member
+  const notePost = await api(`conversations/${cid}/notes`, alice, 'POST', { title: 'Team Meeting Notes', body: 'Sprint goals discussion' });
+  assert.equal(notePost.status, 201);
+  const noteObj = await notePost.json();
+  assert.equal(noteObj.title, 'Team Meeting Notes');
+  const bobNotes = await (await api(`conversations/${cid}/notes`, bob)).json();
+  assert.ok(bobNotes.notes.some(n => n.id === noteObj.id));
+
+  // Schedule events & RSVP: creation and member RSVP
+  const eventPost = await api(`conversations/${cid}/events`, alice, 'POST', {
+    title: 'Product Launch Party',
+    starts_at: new Date(Date.now() + 86400000).toISOString(),
+    location: 'Gangnam Office'
+  });
+  assert.equal(eventPost.status, 201);
+  const eventObj = await eventPost.json();
+  assert.equal((await api(`conversations/${cid}/events/${eventObj.id}/rsvp`, outsider, 'POST', { status: 'going' })).status, 404);
+  const bobRsvp = await api(`conversations/${cid}/events/${eventObj.id}/rsvp`, bob, 'POST', { status: 'going' });
+  assert.equal(bobRsvp.status, 200);
+
   // Keep Vault test: save, list, delete
   const saveRes = await api('saved-messages', alice, 'POST', { body: 'Important keep note', kind: 'text' });
   assert.equal(saveRes.status, 201);
