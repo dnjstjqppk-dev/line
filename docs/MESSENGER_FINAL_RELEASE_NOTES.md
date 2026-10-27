@@ -91,3 +91,4 @@ adb install -r Messenger-Android-v1.0.0-release.apk
 cd backend
 go run ./cmd/server
 ```
+

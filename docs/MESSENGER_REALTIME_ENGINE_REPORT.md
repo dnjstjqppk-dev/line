@@ -45,3 +45,4 @@ sequenceDiagram
 - `call.ringing`: 1:1 또는 그룹 수신 전화 알림
 - `call.signal`: WebRTC SDP Offer/Answer 및 ICE Candidate 릴레이
 - `call.state`: 통화 연결(`connected`), 음소거(`muted`), 종료(`ended`) 상태 전이
+

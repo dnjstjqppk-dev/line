@@ -72,3 +72,4 @@ flowchart TD
 ### 2.4 데이터베이스 계층 (Data Tier)
 - **16개 도메인 관계형 스키마 ([`database/001_all_phases.sql`](file:///c:/Users/dnjst/Desktop/project/line/database/001_all_phases.sql))**:
   - `identity`, `social`, `chat`, `realtime`, `calling`, `crypto`, `community`, `business`, `developer`, `creator`, `commerce`, `ads`, `safety`, `ops` 등 총 80개 테이블 구성.
+

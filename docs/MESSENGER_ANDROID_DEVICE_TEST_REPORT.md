@@ -133,3 +133,4 @@ adb shell pm grant com.bookingnetwork.messenger android.permission.POST_NOTIFICA
    - Initiate a voice or video call.
    - Verify ringtone and incoming call overlay on target device.
    - Accept call and confirm two-way audio stream and WebRTC stats.
+

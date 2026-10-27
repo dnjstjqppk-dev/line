@@ -30,3 +30,4 @@ stateDiagram-v2
    - 표준 TURN 자격증명 교환 규격 준수 (`turn:turn.line-grade.net:3478`).
 3. **QoS Telemetry (`POST /api/v1/calls/{id}/quality`)**:
    - 왕복 지연 시간(RTT ms), 지터(Jitter ms), 패킷 손실률(Packet Loss %) 모니터링 및 자동 비트레이트 조절(Adaptive Bitrate).
+

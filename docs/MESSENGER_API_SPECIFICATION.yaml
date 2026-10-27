@@ -164,3 +164,4 @@ paths:
       responses:
         '200':
           description: Money transferred
+

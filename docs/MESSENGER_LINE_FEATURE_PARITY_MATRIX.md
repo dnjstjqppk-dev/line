@@ -52,3 +52,4 @@
 | | 광고주 센터 | 캠페인, 광고 그룹, 타겟팅 관리 | `IMPLEMENTED` | `VERIFIED` (apps/ads-console) |
 | **Android 네이티브** | Flutter Release APK | Android SDK 36 기반 릴리즈 APK 패키징 | `IMPLEMENTED` | `VERIFIED` (Messenger-Android-v1.0.0-release.apk) |
 | | 시스템 권한 통합 | 인터넷, 오디오, 카메라, 포그라운드 서비스 | `IMPLEMENTED` | `VERIFIED` (AndroidManifest.xml) |
+

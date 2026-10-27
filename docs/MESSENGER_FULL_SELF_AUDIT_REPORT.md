@@ -43,3 +43,4 @@
    - 5대 관리자 콘솔 상단 내비게이션에 공식 LINE Green `#06C755` 통일 적용.
 4. **Android 빌드 툴체인 및 패키징 (해결 완료)**:
    - Android SDK 36.0.0 및 Gradle 8.13 기반 정식 릴리즈 APK (`Messenger-Android-v1.0.0-release.apk`) 빌드 완료.
+

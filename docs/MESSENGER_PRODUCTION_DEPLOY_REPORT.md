@@ -4,7 +4,7 @@
 **Platform:** Cloudflare Workers Serverless Edge Global Network  
 **Live Production URL:** [https://line-messenger.dnjstjqppk.workers.dev](https://line-messenger.dnjstjqppk.workers.dev)  
 **Cloudflare Account ID:** `6d53e0a853ad74dec5fefcd4b4600e3a`  
-**Latest Production Version ID:** `834385c5-a034-42b9-a343-48cc89f87ae0`  
+**Latest Production Version ID:** `734c02c3-8aa0-4617-872c-b86fd19a0253`  
 **Deployment Date:** 2026-10-27  
 **Status:** `ONLINE / FULLY OPERATIONAL / AUTO-REBUILD ACTIVE`  
 
@@ -88,3 +88,4 @@ Cloudflare maintains an immutable history of all deployments:
    npx wrangler rollback [DEPLOYMENT_ID]
    ```
    Rollback executes instantaneously across all global Cloudflare edge data centers.
+
