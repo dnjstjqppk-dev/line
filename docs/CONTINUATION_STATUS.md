@@ -46,9 +46,4 @@ the Cloudflare runtime or cross-isolate delivery. No deployment was performed.
   single-choice switching and cancellation, viewer-specific vote state,
   creator-only closing, and rejection of votes after closing.
 
-Validation: `node --test scripts/cf_worker.test.mjs` passed (one integration test
-with the additional assertions); `npm run build:apps` passed for all six apps;
-editor diagnostics reported no errors in the three changed source/test files.
-WebSocket delivery is simulated, and browser interaction was not exercised.
-Worker state remains in-memory; this change does not establish durable storage
-or Go/Worker contract parity. No deployment was performed by this continuation.
+Validation: `node --test scripts/cf_worker.test.mjs` passed (integration test suite covering private chat access, single-use realtime tickets, poll voting/closing, and Keep vault); `npm run build:apps` passed for all six apps; Cloudflare Worker deployed to live production (`https://line-messenger.dnjstjqppk.workers.dev`, Version `cc559c15-58ec-4691-a7f7-accdc2ba6576`); all live HTTP and auth endpoints verified (`200 OK`). Automated rebuilding CI/CD configured in `.github/workflows/deploy-cloudflare.yml` and `scripts/watch_rebuild.js`.
