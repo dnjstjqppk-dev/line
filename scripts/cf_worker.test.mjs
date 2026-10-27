@@ -70,6 +70,30 @@ test('private chat access and one-use realtime tickets', async () => {
   assert.equal(sockets[2].events.length, 0);
   const poll = await (await api(`conversations/${cid}/polls`, alice, 'POST', { question: 'Lunch?', options: ['A', 'B'] })).json();
   assert.equal((await api(`polls/${poll.id}/vote`, outsider, 'POST', { option_id: 'opt-0' })).status, 404);
+  for (const socket of sockets.slice(0, 2)) {
+    assert.deepEqual(socket.events.at(-1), { type: 'poll.updated', conversation_id: cid, poll_id: poll.id });
+  }
+  assert.equal(sockets[2].events.length, 0);
+  const vote = async (token, option_id) => {
+    const response = await api(`polls/${poll.id}/vote`, token, 'POST', { option_id });
+    assert.equal(response.status, 200);
+    return (await response.json()).poll;
+  };
+  await vote(alice, 'opt-0');
+  let updated = await vote(bob, 'opt-1');
+  assert.deepEqual(updated.options.map(o => o.votes), [1, 1]);
+  assert.deepEqual(updated.options.map(o => o.voted), [false, true]);
+  updated = await vote(alice, 'opt-1');
+  assert.deepEqual(updated.options.map(o => o.votes), [0, 2]);
+  updated = await vote(alice, 'opt-1');
+  assert.deepEqual(updated.options.map(o => o.votes), [0, 1]);
+  const listed = await (await api(`conversations/${cid}/polls`, bob)).json();
+  assert.deepEqual(listed.polls.find(p => p.id === poll.id).options.map(o => o.voted), [false, true]);
+  assert.equal((await api(`polls/${poll.id}/close`, bob, 'POST')).status, 403);
+  assert.equal((await api(`polls/${poll.id}/close`, outsider, 'POST')).status, 404);
+  assert.equal((await api(`polls/${poll.id}/close`, alice, 'POST')).status, 200);
+  assert.equal((await api(`polls/${poll.id}/vote`, bob, 'POST', { option_id: 'opt-0' })).status, 400);
+  assert.equal(sockets[2].events.length, 0);
 
   // Keep Vault test: save, list, delete
   const saveRes = await api('saved-messages', alice, 'POST', { body: 'Important keep note', kind: 'text' });

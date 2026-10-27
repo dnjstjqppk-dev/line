@@ -33,3 +33,22 @@ the Cloudflare runtime or cross-isolate delivery. No deployment was performed.
 - Review authentication storage, seeded credentials and feature flags before
   production use. This continuation is not a full security audit.
 - Validate the existing Go and Flutter changes in their respective runtimes.
+
+## Continuation: 2026-10-27 — requirement 046 poll synchronization
+
+- Emit a member-scoped `poll.updated` event on Worker poll creation so other
+  connected clients refresh their poll lists immediately.
+- Refresh the web poll list only for events belonging to the selected chat.
+- Ignore responses from a previous chat or superseded poll-list request.
+- Reload after creation instead of inserting locally, avoiding duplicate entries
+  when the creation response races with its WebSocket notification.
+- Extended the Worker regression test to check creation-event isolation,
+  single-choice switching and cancellation, viewer-specific vote state,
+  creator-only closing, and rejection of votes after closing.
+
+Validation: `node --test scripts/cf_worker.test.mjs` passed (one integration test
+with the additional assertions); `npm run build:apps` passed for all six apps;
+editor diagnostics reported no errors in the three changed source/test files.
+WebSocket delivery is simulated, and browser interaction was not exercised.
+Worker state remains in-memory; this change does not establish durable storage
+or Go/Worker contract parity. No deployment was performed by this continuation.

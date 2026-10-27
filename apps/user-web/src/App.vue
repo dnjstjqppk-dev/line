@@ -257,7 +257,7 @@ async function connectRealtime() {
             startCallTimer()
           }
         } else if (data.type === 'poll.updated') {
-          if (selectedChatId.value) void loadPolls(selectedChatId.value)
+          if (data.conversation_id === selectedChatId.value) void loadPolls(selectedChatId.value)
         }
       } catch {
         // ignore malformed ws message
@@ -343,10 +343,14 @@ async function selectChat(convId: string) {
   })
 }
 
+let pollLoadVersion = 0
 async function loadPolls(convId: string) {
+  const version = ++pollLoadVersion
   try {
     const res = await api<{ polls: any[] }>(`/api/v1/conversations/${convId}/polls`)
-    activePolls.value = res.polls || []
+    if (selectedChatId.value === convId && version === pollLoadVersion) {
+      activePolls.value = res.polls || []
+    }
   } catch {}
 }
 
@@ -516,14 +520,15 @@ function startReply(msg: Message) {
 // --- Polls & Events ---
 async function createPoll() {
   if (!selectedChatId.value || !newPollQuestion.value.trim() || !newPollOption1.value.trim() || !newPollOption2.value.trim()) return
+  const convId = selectedChatId.value
   await wrap(async () => {
     const opts = [newPollOption1.value.trim(), newPollOption2.value.trim()]
     if (newPollOption3.value.trim()) opts.push(newPollOption3.value.trim())
-    const p = await api<any>(`/api/v1/conversations/${selectedChatId.value}/polls`, 'POST', {
+    await api<any>(`/api/v1/conversations/${convId}/polls`, 'POST', {
       question: newPollQuestion.value.trim(),
       options: opts
     })
-    activePolls.value.unshift(p)
+    if (selectedChatId.value === convId) await loadPolls(convId)
     newPollQuestion.value = ''
     newPollOption1.value = ''
     newPollOption2.value = ''

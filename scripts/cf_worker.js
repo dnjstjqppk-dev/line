@@ -946,6 +946,7 @@ async function extended(p, request, url, me, token) {
       const poll = { id: uid(), conversation_id: cid, question, multiple: b.multiple === true, closed: false, created_by: myId, created_at: now(), options: opts.map((t, i) => ({ id: `opt-${i}`, text: t, voters: new Set() })) };
       polls.set(poll.id, poll);
       pushMessage(cid, myId, { kind: 'poll', body: question, metadata: { poll_id: poll.id } });
+      broadcast({ type: 'poll.updated', conversation_id: cid, poll_id: poll.id });
       return json(pollView(poll, myId), 201);
     }
   }

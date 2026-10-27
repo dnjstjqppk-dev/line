@@ -59,3 +59,4 @@ for (const dir of WATCH_DIRS) {
     console.warn(`Could not watch ${dir}:`, err.message);
   }
 }
+
