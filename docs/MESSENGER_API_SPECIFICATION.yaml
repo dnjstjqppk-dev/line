@@ -1,0 +1,166 @@
+openapi: 3.1.0
+info:
+  title: LINE-Grade Global Messenger API
+  version: 1.0.0
+  description: Complete REST & Realtime API Suite for Global LINE-Identical Messenger Platform
+servers:
+  - url: https://line-messenger.dnjstjqppk.workers.dev
+    description: Cloudflare Global Edge Production Server
+  - url: http://localhost:8080
+    description: Local Go Backend Development Server
+
+paths:
+  /healthz:
+    get:
+      summary: Edge health check
+      responses:
+        '200':
+          description: OK
+  /api/v1/health:
+    get:
+      summary: Core API health check
+      responses:
+        '200':
+          description: OK
+  /api/v1/auth/register:
+    post:
+      summary: Register new user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string }
+                password: { type: string }
+                display_name: { type: string }
+      responses:
+        '201':
+          description: User registered successfully
+  /api/v1/auth/login:
+    post:
+      summary: User authentication and token issuance
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email_or_phone, password]
+              properties:
+                email_or_phone: { type: string }
+                password: { type: string }
+      responses:
+        '200':
+          description: Authentication successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  access_token: { type: string }
+                  refresh_token: { type: string }
+                  token_type: { type: string }
+                  expires_in: { type: integer }
+                  user_id: { type: string }
+                  role: { type: string }
+  /api/v1/auth/qr/challenge:
+    post:
+      summary: Issue QR challenge for PC/Desktop login
+      responses:
+        '201':
+          description: QR challenge created
+  /api/v1/auth/qr/approve:
+    post:
+      summary: Approve QR login on mobile device
+      responses:
+        '200':
+          description: QR challenge approved
+  /api/v1/friends:
+    get:
+      summary: List friends with birthday and status message
+      responses:
+        '200':
+          description: List of friends
+    post:
+      summary: Add friend by user ID or handle
+      responses:
+        '200':
+          description: Friend added
+  /api/v1/conversations:
+    get:
+      summary: List user conversations
+      responses:
+        '200':
+          description: Active conversation list
+    post:
+      summary: Create direct or group conversation
+      responses:
+        '201':
+          description: Conversation created
+  /api/v1/conversations/{id}/messages:
+    get:
+      summary: Fetch conversation message history
+      responses:
+        '200':
+          description: Messages array
+    post:
+      summary: Send text, sticker, attachment, or payment bubble message
+      responses:
+        '201':
+          description: Message delivered
+  /api/v1/conversations/{id}/messages/{msgId}/unsend:
+    post:
+      summary: Unsend message within 24 hours
+      responses:
+        '200':
+          description: Message unsent
+  /api/v1/conversations/{id}/messages/{msgId}/reactions:
+    post:
+      summary: React to message with LINE's 6 emoji reactions
+      responses:
+        '200':
+          description: Reaction updated
+  /api/v1/calls:
+    get:
+      summary: List call logs
+      responses:
+        '200':
+          description: Call history
+    post:
+      summary: Initiate 1:1 or group voice/video call
+      responses:
+        '201':
+          description: Call initiated with WebRTC SDP offer
+  /api/v1/calls/{id}/signal:
+    post:
+      summary: Exchange WebRTC SDP answer or ICE candidate
+      responses:
+        '200':
+          description: Signaling message routed
+  /api/v1/calls/{id}/quality:
+    post:
+      summary: Report call QoS metrics (RTT, jitter, packet loss)
+      responses:
+        '200':
+          description: Metrics saved
+  /api/v1/wallet:
+    get:
+      summary: Get LINE Pay balance and transactions
+      responses:
+        '200':
+          description: Pay wallet details
+  /api/v1/wallet/charge:
+    post:
+      summary: Charge LINE Pay balance
+      responses:
+        '200':
+          description: Balance recharged
+  /api/v1/wallet/send:
+    post:
+      summary: Transfer money to friend with chat remittance bubble
+      responses:
+        '200':
+          description: Money transferred

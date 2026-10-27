@@ -24,3 +24,6 @@ dist_cf/
 *.db-wal
 *.db-shm
 **/target/
+**/.gradle/
+**/.kotlin/
+**/local.properties
