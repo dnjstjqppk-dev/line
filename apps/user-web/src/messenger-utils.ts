@@ -240,3 +240,22 @@ async function x3dhInitiate(localIdentityKey: CryptoKeyPair, remoteBundle: PreKe
 export { generatePreKeyBundle, x3dhInitiate }
 
 export { storeSignalSession, loadSignalSession, deleteSignalSession }
+// --- Signal Protocol Key Rotation ---
+async function rotateSignedPreKey(identityKeyPair: CryptoKeyPair, oldKeyId: number): Promise<{ newKeyId: number; publicKey: JsonWebKey }> {
+  const newKeyId = oldKeyId + 1
+  const newKeyPair = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveKey', 'deriveBits'])
+  const pub = await crypto.subtle.exportKey('jwk', newKeyPair.publicKey)
+  return { newKeyId, publicKey: pub }
+}
+
+async function replenishOneTimePreKeys(count: number): Promise<Array<{ key: JsonWebKey; keyId: number }>> {
+  const keys: Array<{ key: JsonWebKey; keyId: number }> = []
+  for (let i = 0; i < count; i++) {
+    const kp = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveKey', 'deriveBits'])
+    const pub = await crypto.subtle.exportKey('jwk', kp.publicKey)
+    keys.push({ key: pub, keyId: Date.now() + i })
+  }
+  return keys
+}
+
+export { rotateSignedPreKey, replenishOneTimePreKeys }

@@ -307,6 +307,7 @@ func (a *App) Handler() http.Handler {
 		mux.HandleFunc("POST /api/v1/uploads/init", a.withAuth(a.initUpload))
 		mux.HandleFunc("PUT /api/v1/uploads/{id}/chunks/{chunk}", a.withAuth(a.uploadChunk))
 		mux.HandleFunc("POST /api/v1/uploads/{id}/complete", a.withAuth(a.completeUpload))
+		mux.HandleFunc("GET /api/v1/push/credentials", a.withAuth(a.pushCredentialCheck))
 		mux.HandleFunc("POST /api/v1/push/test", a.withAuth(a.pushTest))
 		mux.HandleFunc("GET /api/v1/push/health", a.withAuth(a.pushHealth))
 		mux.HandleFunc("GET /api/v1/me", a.withAuth(a.me))
