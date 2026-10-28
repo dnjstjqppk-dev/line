@@ -1,0 +1,66 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: messenger
+      POSTGRES_USER: messenger
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-messenger_dev}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./database/001_all_phases.sql:/docker-entrypoint-initdb.d/001_all_phases.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U messenger"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgres://messenger:${POSTGRES_PASSWORD:-messenger_dev}@postgres:5432/messenger?sslmode=disable
+      JWT_SECRET: ${JWT_SECRET:-0123456789abcdef0123456789abcdef}
+      PORT: "8080"
+      SERVICE_NAME: gateway
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:5173}
+      MESSAGE_ENCRYPTION_KEY: ${MESSAGE_ENCRYPTION_KEY:-}
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  coturn:
+    image: coturn/coturn:latest
+    ports:
+      - "3478:3478/tcp"
+      - "3478:3478/udp"
+      - "49152-65535:49152-65535/udp"
+    environment:
+      - TURN_USERNAME=${TURN_USERNAME:-turnuser}
+      - TURN_PASSWORD=${TURN_PASSWORD:-turnpass}
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  redisdata:
