@@ -127,5 +127,64 @@ async function deleteSignalSession(conversationId: string): Promise<void> {
   })
   db.close()
 }
+// --- X3DH Pre-Key Bundle Management ---
+interface PreKeyBundle {
+  identityKey: JsonWebKey
+  signedPreKey: { key: JsonWebKey; signature: string; keyId: number }
+  oneTimePreKeys: Array<{ key: JsonWebKey; keyId: number }>
+}
+
+async function generatePreKeyBundle(identityKeyPair: CryptoKeyPair): Promise<PreKeyBundle> {
+  const signedPreKeyPair = await crypto.subtle.generateKey(
+    { name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveKey', 'deriveBits']
+  )
+  const signedPreKeyPub = await crypto.subtle.exportKey('jwk', signedPreKeyPair.publicKey)
+  const preKeyData = new TextEncoder().encode(JSON.stringify(signedPreKeyPub))
+  const signature = await crypto.subtle.sign(
+    { name: 'ECDSA', hash: 'SHA-256' },
+    identityKeyPair.privateKey,
+    preKeyData
+  )
+  const oneTimePreKeys: Array<{ key: JsonWebKey; keyId: number }> = []
+  for (let i = 0; i < 10; i++) {
+    const kp = await crypto.subtle.generateKey(
+      { name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveKey', 'deriveBits']
+    )
+    const pub = await crypto.subtle.exportKey('jwk', kp.publicKey)
+    oneTimePreKeys.push({ key: pub, keyId: i })
+  }
+  const identityPub = await crypto.subtle.exportKey('jwk', identityKeyPair.publicKey)
+  return {
+    identityKey: identityPub,
+    signedPreKey: {
+      key: signedPreKeyPub,
+      signature: btoa(String.fromCharCode(...new Uint8Array(signature))),
+      keyId: 1
+    },
+    oneTimePreKeys
+  }
+}
+
+async function x3dhInitiate(localIdentityKey: CryptoKeyPair, remoteBundle: PreKeyBundle): Promise<ArrayBuffer> {
+  const ephemeralKeyPair = await crypto.subtle.generateKey(
+    { name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveKey', 'deriveBits']
+  )
+  const remoteIdentityKey = await crypto.subtle.importKey(
+    'jwk', remoteBundle.identityKey, { name: 'ECDH', namedCurve: 'P-256' }, true, []
+  )
+  const remoteSignedPreKey = await crypto.subtle.importKey(
+    'jwk', remoteBundle.signedPreKey.key, { name: 'ECDH', namedCurve: 'P-256' }, true, []
+  )
+  const dh1 = await crypto.subtle.deriveBits({ name: 'ECDH', public: remoteSignedPreKey }, localIdentityKey.privateKey, 256)
+  const dh2 = await crypto.subtle.deriveBits({ name: 'ECDH', public: remoteIdentityKey }, ephemeralKeyPair.privateKey, 256)
+  const dh3 = await crypto.subtle.deriveBits({ name: 'ECDH', public: remoteSignedPreKey }, ephemeralKeyPair.privateKey, 256)
+  const combined = new Uint8Array(dh1.byteLength + dh2.byteLength + dh3.byteLength)
+  combined.set(new Uint8Array(dh1), 0)
+  combined.set(new Uint8Array(dh2), dh1.byteLength)
+  combined.set(new Uint8Array(dh3), dh1.byteLength + dh2.byteLength)
+  return combined.buffer
+}
+
+export { generatePreKeyBundle, x3dhInitiate }
 
 export { storeSignalSession, loadSignalSession, deleteSignalSession }

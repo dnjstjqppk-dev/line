@@ -1,0 +1,43 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards
+data:
+  messenger-dashboard.json: |
+    {
+      "dashboard": {
+        "title": "Messenger Overview",
+        "panels": [
+          {
+            "title": "Active WebSocket Connections",
+            "type": "graph",
+            "targets": [{"expr": "messenger_websocket_connections"}]
+          },
+          {
+            "title": "Message Throughput",
+            "type": "graph",
+            "targets": [{"expr": "rate(messenger_messages_total[5m])"}]
+          },
+          {
+            "title": "API Latency (p95)",
+            "type": "graph",
+            "targets": [{"expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))"}]
+          },
+          {
+            "title": "Error Rate",
+            "type": "graph",
+            "targets": [{"expr": "rate(http_requests_total{status=~\"5..\"}[5m])"}]
+          },
+          {
+            "title": "Push Queue Depth",
+            "type": "graph",
+            "targets": [{"expr": "messenger_push_queue_pending"}]
+          },
+          {
+            "title": "Database Pool Usage",
+            "type": "graph",
+            "targets": [{"expr": "messenger_db_pool_in_use / messenger_db_pool_max"}]
+          }
+        ]
+      }
+    }
