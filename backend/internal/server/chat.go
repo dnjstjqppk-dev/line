@@ -1131,6 +1131,10 @@ func (a *App) listSavedMessages(w http.ResponseWriter, r *http.Request) {
 			out = append(out, map[string]any{"id": id, "message_id": id, "conversation_id": cid, "body": a.msgCipher.decrypt(body), "kind": kind, "created_at": at, "saved_at": at})
 		}
 	}
+	if err := rows.Err(); err != nil {
+		fail(w, 500, "saved messages unavailable")
+		return
+	}
 	send(w, 200, map[string]any{"saved_messages": out})
 }
 
@@ -1157,6 +1161,9 @@ func (a *App) unifiedSearch(w http.ResponseWriter, r *http.Request) {
 					msgs = append(msgs, map[string]any{"id": id, "conversation_id": cid, "body": decrypted, "sequence": seq})
 				}
 			}
+		}
+		if err := msgRows.Err(); err != nil {
+			msgRows.Close()
 		}
 		msgRows.Close()
 	}
@@ -1200,6 +1207,10 @@ func (a *App) drainOutbox(ctx context.Context) {
 			p.payload = []byte(payload)
 			batch = append(batch, p)
 		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return
 	}
 	rows.Close()
 	for _, p := range batch {

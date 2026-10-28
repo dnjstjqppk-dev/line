@@ -9,5 +9,8 @@
   "assets": {
     "directory": "./dist_cf",
     "binding": "ASSETS"
+  },
+  "vars": {
+    "ALLOW_LOCAL_DEMO": "true"
   }
 }

@@ -89,6 +89,10 @@ func (a *App) drainPushQueue(ctx context.Context) {
 			batch = append(batch, it)
 		}
 	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return
+	}
 	rows.Close()
 
 	fcm := a.fcmConfig()
@@ -114,6 +118,9 @@ func (a *App) drainPushQueue(ctx context.Context) {
 				if err := tokenRows.Scan(&tok, &prov, &devID); err == nil {
 					tokens = append(tokens, pushToken{token: tok, provider: prov, deviceID: devID})
 				}
+			}
+			if err := tokenRows.Err(); err != nil {
+				tokenRows.Close()
 			}
 			tokenRows.Close()
 

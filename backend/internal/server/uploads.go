@@ -164,6 +164,10 @@ func (a *App) completeUpload(w http.ResponseWriter, r *http.Request) {
 		}
 		content = append(content, chunk...)
 	}
+	if err := rows.Err(); err != nil {
+		fail(w, 500, "chunk read failed")
+		return
+	}
 	if int64(len(content)) != totalSize {
 		fail(w, 400, "size mismatch")
 		return
