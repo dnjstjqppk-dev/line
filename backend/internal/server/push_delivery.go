@@ -3,11 +3,18 @@ package server
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/x509"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
+
+	"encoding/pem"
 )
 
 type fcmServiceAccount struct {
@@ -222,6 +229,12 @@ func (a *App) sendAPNs(ctx context.Context, cfg Config, deviceToken, title, body
 		return false
 	}
 	req.Header.Set("apns-topic", cfg.APNsBundleID)
+	// Generate and set JWT token
+	jwt, err := generateAPNsJWT(cfg.APNsKeyID, cfg.APNsTeamID, cfg.APNsPrivateKey)
+	if err == nil && jwt != "" {
+		req.Header.Set("authorization", "bearer "+jwt)
+	}
+
 	req.Header.Set("apns-push-type", "alert")
 	req.Header.Set("apns-priority", "10")
 	req.Header.Set("Content-Type", "application/json")
@@ -232,4 +245,46 @@ func (a *App) sendAPNs(ctx context.Context, cfg Config, deviceToken, title, body
 	}
 	defer resp.Body.Close()
 	return resp.StatusCode == http.StatusOK
+}
+// generateAPNsJWT creates an ES256 JWT for APNs authentication.
+func generateAPNsJWT(keyID, teamID, privateKeyPEM string) (string, error) {
+	block, _ := pem.Decode([]byte(privateKeyPEM))
+	if block == nil {
+		return "", fmt.Errorf("failed to decode PEM block")
+	}
+	privKey, err := x509.ParseECPrivateKey(block.Bytes)
+	if err != nil {
+		key, err2 := x509.ParsePKCS8PrivateKey(block.Bytes)
+		if err2 != nil {
+			return "", fmt.Errorf("failed to parse private key: %v / %v", err, err2)
+		}
+		ecKey, ok := key.(*ecdsa.PrivateKey)
+		if !ok {
+			return "", fmt.Errorf("not an EC private key")
+		}
+		privKey = ecKey
+	}
+
+	now := time.Now()
+	header := map[string]string{"alg": "ES256", "kid": keyID}
+	claims := map[string]any{"iss": teamID, "iat": now.Unix()}
+
+	headerBytes, _ := json.Marshal(header)
+	claimsBytes, _ := json.Marshal(claims)
+	encodedHeader := base64.RawURLEncoding.EncodeToString(headerBytes)
+	encodedClaims := base64.RawURLEncoding.EncodeToString(claimsBytes)
+	signingInput := encodedHeader + "." + encodedClaims
+
+	hash := sha256.Sum256([]byte(signingInput))
+	r, s, err := ecdsa.Sign(rand.Reader, privKey, hash[:])
+	if err != nil {
+		return "", err
+	}
+
+	sig := make([]byte, 64)
+	r.FillBytes(sig[:32])
+	s.FillBytes(sig[32:])
+	encodedSig := base64.RawURLEncoding.EncodeToString(sig)
+
+	return signingInput + "." + encodedSig, nil
 }
