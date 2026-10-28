@@ -113,3 +113,4 @@
 .opacity-50 { opacity: 0.5; }
 .cursor-pointer { cursor: pointer; }
 .transition { transition: all 0.2s ease; }
+.voice-message { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--line-bubble-other); border-radius: 18px; border-bottom-left-radius: 4px; min-width: 120px; }
