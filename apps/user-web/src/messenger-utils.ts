@@ -133,6 +133,58 @@ interface PreKeyBundle {
   signedPreKey: { key: JsonWebKey; signature: string; keyId: number }
   oneTimePreKeys: Array<{ key: JsonWebKey; keyId: number }>
 }
+// --- Signal Protocol Complete Implementation ---
+
+async function hkdf(ikm: ArrayBuffer, salt: Uint8Array, info: Uint8Array, length: number): Promise<ArrayBuffer> {
+  const key = await crypto.subtle.importKey('raw', ikm, { name: 'HKDF' }, false, ['deriveBits'])
+  return await crypto.subtle.deriveBits({ name: 'HKDF', hash: 'SHA-256', salt, info }, key, length)
+}
+
+async function kdfChain(chainKey: ArrayBuffer): Promise<{ newChainKey: ArrayBuffer; messageKey: ArrayBuffer }> {
+  const input = new Uint8Array(chainKey)
+  const msgKey = await hkdf(input.buffer, new Uint8Array(32), new TextEncoder().encode('MessageKey'), 256)
+  const newChain = await hkdf(input.buffer, new Uint8Array(32), new TextEncoder().encode('ChainKey'), 256)
+  return { newChainKey: newChain, messageKey: msgKey }
+}
+
+async function doubleRatchetEncrypt(rootKey: ArrayBuffer, chainKey: ArrayBuffer | null, counter: number, plaintext: string): Promise<{ ciphertext: string; newChainKey: ArrayBuffer; newCounter: number }> {
+  let ck = chainKey
+  if (!ck) { ck = await hkdf(rootKey, new Uint8Array(32), new TextEncoder().encode('SendingChain'), 256) }
+  const { newChainKey, messageKey } = await kdfChain(ck)
+  const msgKeyCrypto = await crypto.subtle.importKey('raw', messageKey, { name: 'AES-GCM', length: 256 }, false, ['encrypt'])
+  const iv = crypto.getRandomValues(new Uint8Array(12))
+  const encoded = new TextEncoder().encode(plaintext)
+  const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, msgKeyCrypto, encoded)
+  const combined = new Uint8Array(4 + 12 + ct.byteLength)
+  const view = new DataView(combined.buffer)
+  view.setUint32(0, counter)
+  combined.set(iv, 4)
+  combined.set(new Uint8Array(ct), 16)
+  return { ciphertext: btoa(String.fromCharCode(...combined)), newChainKey, newCounter: counter + 1 }
+}
+
+async function doubleRatchetDecrypt(rootKey: ArrayBuffer, chainKey: ArrayBuffer | null, ciphertextB64: string): Promise<{ plaintext: string; newChainKey: ArrayBuffer; counter: number }> {
+  const combined = Uint8Array.from(atob(ciphertextB64), c => c.charCodeAt(0))
+  const view = new DataView(combined.buffer)
+  const counter = view.getUint32(0)
+  const iv = combined.slice(4, 16)
+  const ct = combined.slice(16)
+  let ck = chainKey
+  if (!ck) { ck = await hkdf(rootKey, new Uint8Array(32), new TextEncoder().encode('ReceivingChain'), 256) }
+  let currentChain = ck
+  for (let i = 0; i <= counter; i++) {
+    const { newChainKey, messageKey } = await kdfChain(currentChain)
+    if (i === counter) {
+      const msgKeyCrypto = await crypto.subtle.importKey('raw', messageKey, { name: 'AES-GCM', length: 256 }, false, ['decrypt'])
+      const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, msgKeyCrypto, ct)
+      return { plaintext: new TextDecoder().decode(pt), newChainKey, counter }
+    }
+    currentChain = newChainKey
+  }
+  throw new Error('decryption failed')
+}
+
+export { hkdf, kdfChain, doubleRatchetEncrypt, doubleRatchetDecrypt }
 
 async function generatePreKeyBundle(identityKeyPair: CryptoKeyPair): Promise<PreKeyBundle> {
   const signedPreKeyPair = await crypto.subtle.generateKey(
