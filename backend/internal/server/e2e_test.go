@@ -317,7 +317,7 @@ func TestFullMessenger12CriticalE2EScenariosAndAllDomains(t *testing.T) {
 	st, attResp := pcA.req("POST", "/api/v1/attachments", map[string]any{
 		"original_name":  "architecture_diagram.png",
 		"mime_type":      "image/png",
-		"size_bytes":     40960,
+		"size_bytes":     68,
 		"content_base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
 	})
 	if st != 201 {
@@ -509,8 +509,12 @@ func TestFullMessenger12CriticalE2EScenariosAndAllDomains(t *testing.T) {
 		"currency":        "KRW",
 		"idempotency_key": "order-idem-0001",
 	})
-	if st != 201 {
-		t.Fatalf("store order failed: %d %v", st, orderResp)
+	if st != 503 {
+		t.Fatalf("unverified payment provider must fail closed: %d %v", st, orderResp)
+	}
+	var paymentCount int
+	if err := app.db.QueryRow("SELECT count(*) FROM commerce.payments").Scan(&paymentCount); err != nil || paymentCount != 0 {
+		t.Fatalf("blocked checkout wrote payments: %d %v", paymentCount, err)
 	}
 
 	st, roomResp := androidA.req("POST", "/api/v1/community/rooms", map[string]any{
@@ -563,4 +567,3 @@ func TestFullMessenger12CriticalE2EScenariosAndAllDomains(t *testing.T) {
 		t.Fatalf("admin stats failed: %d %v", st, statsResp)
 	}
 }
-

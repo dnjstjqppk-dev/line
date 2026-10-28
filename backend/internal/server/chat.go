@@ -1,9 +1,11 @@
 package server
 
 import (
+	"context"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -24,6 +26,8 @@ type Message struct {
 	Metadata       map[string]any `json:"metadata,omitempty"`
 	CreatedAt      time.Time      `json:"created_at"`
 	EditedAt       *time.Time     `json:"edited_at,omitempty"`
+	Reactions      map[string]int `json:"reactions,omitempty"`
+	MyReactions    []string       `json:"my_reactions,omitempty"`
 }
 
 func (a *App) isMember(r *http.Request, id string) bool {
@@ -198,6 +202,7 @@ func (a *App) messages(w http.ResponseWriter, r *http.Request) {
 	for i, j := 0, len(msgs)-1; i < j; i, j = i+1, j-1 {
 		msgs[i], msgs[j] = msgs[j], msgs[i]
 	}
+	a.populateReactions(r.Context(), msgs, claims(r).Subject)
 	send(w, 200, map[string]any{"messages": msgs})
 }
 
@@ -236,6 +241,7 @@ func (a *App) syncMessages(w http.ResponseWriter, r *http.Request) {
 			msgs = append(msgs, m)
 		}
 	}
+	a.populateReactions(r.Context(), msgs, claims(r).Subject)
 	var lastSeq int64
 	_ = a.db.QueryRowContext(r.Context(), "SELECT last_sequence FROM chat.conversations WHERE id=$1", id).Scan(&lastSeq)
 	send(w, 200, map[string]any{"messages": msgs, "last_sequence": lastSeq})
@@ -243,7 +249,7 @@ func (a *App) syncMessages(w http.ResponseWriter, r *http.Request) {
 
 var allowedMessageKinds = map[string]bool{
 	"text": true, "image": true, "video": true, "audio": true, "file": true,
-	"sticker": true, "location": true, "contact": true, "system": true,
+	"sticker": true, "location": true, "contact": true, "system": true, "poll": true,
 }
 
 func (a *App) sendMessage(w http.ResponseWriter, r *http.Request) {
@@ -346,6 +352,24 @@ func (a *App) sendMessage(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, "message persistence failed")
 		return
 	}
+	if attachmentID, exists := in.Metadata["attachment_id"]; exists {
+		attachment, ok := attachmentID.(string)
+		if !ok || !auth.ValidUUID(attachment) {
+			fail(w, 400, "invalid attachment id")
+			return
+		}
+		result, err := tx.ExecContext(r.Context(), `UPDATE chat.attachments SET message_id=$1
+		 WHERE id=$2 AND owner_id=$3 AND message_id IS NULL AND status='ready'
+		 AND EXISTS(SELECT 1 FROM chat.attachment_blobs WHERE attachment_id=$2)`, m.ID, attachment, claims(r).Subject)
+		if err != nil {
+			fail(w, 500, "attachment association failed")
+			return
+		}
+		if n, err := result.RowsAffected(); err != nil || n != 1 {
+			fail(w, 403, "attachment unavailable")
+			return
+		}
+	}
 	_, e = tx.ExecContext(r.Context(), "UPDATE chat.conversations SET last_sequence=$2,updated_at=now() WHERE id=$1", id, m.Sequence)
 	if e != nil {
 		fail(w, 500, "sequence update failed")
@@ -419,6 +443,40 @@ func (a *App) deleteMessage(w http.ResponseWriter, r *http.Request) {
 	send(w, 200, map[string]string{"status": "recalled", "id": msgID})
 }
 
+func (a *App) populateReactions(ctx context.Context, msgs []Message, viewerID string) {
+	if len(msgs) == 0 {
+		return
+	}
+	msgMap := make(map[string]*Message, len(msgs))
+	placeholders := make([]string, len(msgs))
+	args := make([]any, len(msgs))
+	for i := range msgs {
+		msgMap[msgs[i].ID] = &msgs[i]
+		placeholders[i] = fmt.Sprintf("$%d", i+1)
+		args[i] = msgs[i].ID
+	}
+	q := fmt.Sprintf("SELECT message_id, user_id, reaction FROM chat.message_reactions WHERE message_id IN (%s)", strings.Join(placeholders, ","))
+	rows, err := a.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var mid, uid, rct string
+		if rows.Scan(&mid, &uid, &rct) == nil {
+			if m, ok := msgMap[mid]; ok {
+				if m.Reactions == nil {
+					m.Reactions = make(map[string]int)
+				}
+				m.Reactions[rct]++
+				if uid == viewerID {
+					m.MyReactions = append(m.MyReactions, rct)
+				}
+			}
+		}
+	}
+}
+
 func (a *App) reactMessage(w http.ResponseWriter, r *http.Request) {
 	convID := r.PathValue("id")
 	msgID := r.PathValue("msgId")
@@ -433,22 +491,68 @@ func (a *App) reactMessage(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "invalid reaction")
 		return
 	}
-	_, e := a.db.ExecContext(r.Context(),
-		"INSERT INTO chat.message_reactions(message_id,user_id,reaction) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING",
-		msgID, claims(r).Subject, in.Reaction)
-	if e != nil {
-		fail(w, 500, "reaction failed")
+	viewerID := claims(r).Subject
+
+	var msgConvID string
+	err := a.db.QueryRowContext(r.Context(), "SELECT conversation_id FROM chat.messages WHERE id=$1 AND deleted_at IS NULL", msgID).Scan(&msgConvID)
+	if err == sql.ErrNoRows || msgConvID != convID {
+		fail(w, 404, "message unavailable")
 		return
 	}
+	if err != nil {
+		fail(w, 500, "message lookup failed")
+		return
+	}
+
+	var count int
+	_ = a.db.QueryRowContext(r.Context(), "SELECT count(*) FROM chat.message_reactions WHERE message_id=$1 AND user_id=$2 AND reaction=$3", msgID, viewerID, in.Reaction).Scan(&count)
+
+	status := "reacted"
+	httpStatus := 201
+	if count > 0 {
+		_, e := a.db.ExecContext(r.Context(), "DELETE FROM chat.message_reactions WHERE message_id=$1 AND user_id=$2 AND reaction=$3", msgID, viewerID, in.Reaction)
+		if e != nil {
+			fail(w, 500, "reaction removal failed")
+			return
+		}
+		status = "removed"
+		httpStatus = 200
+	} else {
+		_, e := a.db.ExecContext(r.Context(), "INSERT INTO chat.message_reactions(message_id,user_id,reaction) VALUES ($1,$2,$3)", msgID, viewerID, in.Reaction)
+		if e != nil {
+			fail(w, 500, "reaction failed")
+			return
+		}
+	}
+
+	counts := make(map[string]int)
+	rows, qErr := a.db.QueryContext(r.Context(), "SELECT reaction, count(*) FROM chat.message_reactions WHERE message_id=$1 GROUP BY reaction", msgID)
+	if qErr == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var rct string
+			var cnt int
+			if rows.Scan(&rct, &cnt) == nil {
+				counts[rct] = cnt
+			}
+		}
+	}
+
 	payload, _ := json.Marshal(map[string]any{
 		"type":            "message.reaction",
 		"conversation_id": convID,
 		"message_id":      msgID,
-		"user_id":         claims(r).Subject,
+		"user_id":         viewerID,
 		"reaction":        in.Reaction,
+		"reactions":       counts,
+		"status":          status,
 	})
 	a.hub.Notify(a.conversationMemberIDs(r, convID), payload)
-	send(w, 201, map[string]string{"status": "reacted", "reaction": in.Reaction})
+	send(w, httpStatus, map[string]any{
+		"status":    status,
+		"reaction":  in.Reaction,
+		"reactions": counts,
+	})
 }
 
 func (a *App) pinMessage(w http.ResponseWriter, r *http.Request) {
@@ -550,6 +654,84 @@ func (a *App) typing(w http.ResponseWriter, r *http.Request) {
 	send(w, 200, map[string]string{"status": "broadcasted"})
 }
 
+func (a *App) getPollView(ctx context.Context, pollID string, viewerID string) (map[string]any, error) {
+	var p struct {
+		ID             string
+		ConversationID string
+		Question       string
+		Multiple       bool
+		CreatedBy      string
+		CreatedAt      time.Time
+		ClosedAt       *time.Time
+	}
+	err := a.db.QueryRowContext(ctx,
+		"SELECT id, conversation_id, question, multiple, created_by, created_at, closed_at FROM chat.polls WHERE id=$1",
+		pollID).Scan(&p.ID, &p.ConversationID, &p.Question, &p.Multiple, &p.CreatedBy, &p.CreatedAt, &p.ClosedAt)
+	if err != nil {
+		return nil, err
+	}
+
+	optRows, err := a.db.QueryContext(ctx,
+		"SELECT id, label FROM chat.poll_options WHERE poll_id=$1 ORDER BY id", pollID)
+	if err != nil {
+		return nil, err
+	}
+	defer optRows.Close()
+
+	type optItem struct {
+		ID    string `json:"id"`
+		Label string `json:"label"`
+		Text  string `json:"text"`
+		Votes int    `json:"votes"`
+		Voted bool   `json:"voted"`
+	}
+	var options []optItem
+	optMap := make(map[string]*optItem)
+	for optRows.Next() {
+		var o optItem
+		if optRows.Scan(&o.ID, &o.Label) == nil {
+			o.Text = o.Label
+			options = append(options, o)
+		}
+	}
+	for i := range options {
+		optMap[options[i].ID] = &options[i]
+	}
+
+	voterSet := make(map[string]bool)
+	voteRows, err := a.db.QueryContext(ctx,
+		`SELECT pv.option_id, pv.user_id FROM chat.poll_votes pv
+		 JOIN chat.poll_options po ON po.id = pv.option_id
+		 WHERE po.poll_id = $1`, pollID)
+	if err == nil {
+		defer voteRows.Close()
+		for voteRows.Next() {
+			var oid, uid string
+			if voteRows.Scan(&oid, &uid) == nil {
+				voterSet[uid] = true
+				if item, ok := optMap[oid]; ok {
+					item.Votes++
+					if uid == viewerID {
+						item.Voted = true
+					}
+				}
+			}
+		}
+	}
+
+	return map[string]any{
+		"id":              p.ID,
+		"conversation_id": p.ConversationID,
+		"question":        p.Question,
+		"multiple":        p.Multiple,
+		"closed":          p.ClosedAt != nil,
+		"created_by":      p.CreatedBy,
+		"created_at":      p.CreatedAt,
+		"total_voters":    len(voterSet),
+		"options":         options,
+	}, nil
+}
+
 func (a *App) createPoll(w http.ResponseWriter, r *http.Request) {
 	convID := r.PathValue("id")
 	if !a.isMember(r, convID) {
@@ -559,11 +741,13 @@ func (a *App) createPoll(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Question string   `json:"question"`
 		Options  []string `json:"options"`
+		Multiple bool     `json:"multiple"`
 	}
 	if decode(r, &in) != nil || len(strings.TrimSpace(in.Question)) < 2 || len(in.Options) < 2 || len(in.Options) > 20 {
 		fail(w, 400, "invalid poll")
 		return
 	}
+	viewerID := claims(r).Subject
 	tx, e := a.db.BeginTx(r.Context(), nil)
 	if e != nil {
 		fail(w, 500, "db error")
@@ -572,29 +756,93 @@ func (a *App) createPoll(w http.ResponseWriter, r *http.Request) {
 	defer tx.Rollback()
 	var pollID string
 	e = tx.QueryRowContext(r.Context(),
-		"INSERT INTO chat.polls(conversation_id,question,created_by) VALUES ($1,$2,$3) RETURNING id",
-		convID, in.Question, claims(r).Subject).Scan(&pollID)
+		"INSERT INTO chat.polls(conversation_id,question,multiple,created_by) VALUES ($1,$2,$3,$4) RETURNING id",
+		convID, strings.TrimSpace(in.Question), in.Multiple, viewerID).Scan(&pollID)
 	if e != nil {
 		fail(w, 500, "poll creation failed")
 		return
 	}
-	opts := make([]any, 0, len(in.Options))
-	for _, label := range in.Options {
+	for _, rawLabel := range in.Options {
+		label := strings.TrimSpace(rawLabel)
+		if label == "" {
+			continue
+		}
 		var optID string
 		if e := tx.QueryRowContext(r.Context(), "INSERT INTO chat.poll_options(poll_id,label) VALUES ($1,$2) RETURNING id", pollID, label).Scan(&optID); e != nil {
 			fail(w, 500, "option creation failed")
 			return
 		}
-		opts = append(opts, map[string]string{"id": optID, "label": label})
 	}
+
+	var lastSeq int64
+	_ = tx.QueryRowContext(r.Context(), "SELECT COALESCE(MAX(sequence),0)+1 FROM chat.messages WHERE conversation_id=$1", convID).Scan(&lastSeq)
+	var msgID string
+	metaJSON, _ := json.Marshal(map[string]any{"poll_id": pollID})
+	_ = tx.QueryRowContext(r.Context(),
+		`INSERT INTO chat.messages(conversation_id,sender_id,client_id,sequence,kind,body,metadata)
+		 VALUES ($1,$2,$3,$4,'poll',$5,$6) RETURNING id`,
+		convID, viewerID, "poll-"+pollID, lastSeq, in.Question, string(metaJSON)).Scan(&msgID)
+
 	if tx.Commit() != nil {
 		fail(w, 500, "commit failed")
 		return
 	}
-	send(w, 201, map[string]any{"id": pollID, "question": in.Question, "options": opts})
+
+	view, err := a.getPollView(r.Context(), pollID, viewerID)
+	if err != nil {
+		fail(w, 500, "poll view failed")
+		return
+	}
+
+	updatePayload, _ := json.Marshal(map[string]any{
+		"type":            "poll.updated",
+		"conversation_id": convID,
+		"poll_id":         pollID,
+	})
+	a.hub.Notify(a.conversationMemberIDs(r, convID), updatePayload)
+
+	send(w, 201, view)
+}
+
+func (a *App) listPolls(w http.ResponseWriter, r *http.Request) {
+	convID := r.PathValue("id")
+	if !a.isMember(r, convID) {
+		fail(w, 403, "conversation unavailable")
+		return
+	}
+	viewerID := claims(r).Subject
+	rows, err := a.db.QueryContext(r.Context(),
+		"SELECT id FROM chat.polls WHERE conversation_id=$1 ORDER BY created_at DESC", convID)
+	if err != nil {
+		fail(w, 500, "polls unavailable")
+		return
+	}
+	defer rows.Close()
+
+	var pollIDs []string
+	for rows.Next() {
+		var pid string
+		if rows.Scan(&pid) == nil {
+			pollIDs = append(pollIDs, pid)
+		}
+	}
+
+	out := make([]map[string]any, 0, len(pollIDs))
+	for _, pid := range pollIDs {
+		pv, err := a.getPollView(r.Context(), pid, viewerID)
+		if err == nil {
+			out = append(out, pv)
+		}
+	}
+	send(w, 200, map[string]any{"polls": out})
 }
 
 func (a *App) votePoll(w http.ResponseWriter, r *http.Request) {
+	pollID := r.PathValue("pollId")
+	if !auth.ValidUUID(pollID) {
+		fail(w, 400, "invalid poll_id")
+		return
+	}
 	var in struct {
 		OptionID string `json:"option_id"`
 	}
@@ -602,14 +850,151 @@ func (a *App) votePoll(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "invalid option_id")
 		return
 	}
-	_, e := a.db.ExecContext(r.Context(),
-		"INSERT INTO chat.poll_votes(option_id,user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING",
-		in.OptionID, claims(r).Subject)
-	if e != nil {
-		fail(w, 500, "vote failed")
+	viewerID := claims(r).Subject
+
+	var convID string
+	var multiple bool
+	var closedAt *time.Time
+	err := a.db.QueryRowContext(r.Context(),
+		"SELECT conversation_id, multiple, closed_at FROM chat.polls WHERE id=$1", pollID).Scan(&convID, &multiple, &closedAt)
+	if err == sql.ErrNoRows {
+		fail(w, 404, "poll not found")
 		return
 	}
-	send(w, 200, map[string]string{"status": "voted", "option_id": in.OptionID})
+	if err != nil {
+		fail(w, 500, "poll lookup failed")
+		return
+	}
+	if !a.isMember(r, convID) {
+		fail(w, 403, "conversation unavailable")
+		return
+	}
+	if closedAt != nil {
+		fail(w, 400, "poll is closed")
+		return
+	}
+
+	var optPollID string
+	err = a.db.QueryRowContext(r.Context(), "SELECT poll_id FROM chat.poll_options WHERE id=$1", in.OptionID).Scan(&optPollID)
+	if err != nil || optPollID != pollID {
+		fail(w, 404, "option not found")
+		return
+	}
+
+	tx, err := a.db.BeginTx(r.Context(), nil)
+	if err != nil {
+		fail(w, 500, "db error")
+		return
+	}
+	defer tx.Rollback()
+
+	var existingVoteCount int
+	_ = tx.QueryRowContext(r.Context(),
+		"SELECT count(*) FROM chat.poll_votes WHERE option_id=$1 AND user_id=$2", in.OptionID, viewerID).Scan(&existingVoteCount)
+
+	if existingVoteCount > 0 {
+		_, err = tx.ExecContext(r.Context(),
+			"DELETE FROM chat.poll_votes WHERE option_id=$1 AND user_id=$2", in.OptionID, viewerID)
+		if err != nil {
+			fail(w, 500, "vote removal failed")
+			return
+		}
+	} else {
+		if !multiple {
+			_, err = tx.ExecContext(r.Context(),
+				`DELETE FROM chat.poll_votes WHERE user_id=$1 AND option_id IN
+				 (SELECT id FROM chat.poll_options WHERE poll_id=$2)`, viewerID, pollID)
+			if err != nil {
+				fail(w, 500, "vote reset failed")
+				return
+			}
+		}
+		_, err = tx.ExecContext(r.Context(),
+			"INSERT INTO chat.poll_votes(option_id, user_id) VALUES ($1,$2)", in.OptionID, viewerID)
+		if err != nil {
+			fail(w, 500, "vote failed")
+			return
+		}
+	}
+
+	if tx.Commit() != nil {
+		fail(w, 500, "commit failed")
+		return
+	}
+
+	view, err := a.getPollView(r.Context(), pollID, viewerID)
+	if err != nil {
+		fail(w, 500, "poll view failed")
+		return
+	}
+
+	updatePayload, _ := json.Marshal(map[string]any{
+		"type":            "poll.updated",
+		"conversation_id": convID,
+		"poll_id":         pollID,
+	})
+	a.hub.Notify(a.conversationMemberIDs(r, convID), updatePayload)
+
+	send(w, 200, map[string]any{
+		"status": "voted",
+		"poll":   view,
+	})
+}
+
+func (a *App) closePoll(w http.ResponseWriter, r *http.Request) {
+	pollID := r.PathValue("pollId")
+	if !auth.ValidUUID(pollID) {
+		fail(w, 400, "invalid poll_id")
+		return
+	}
+	viewerID := claims(r).Subject
+
+	var convID, createdBy string
+	var closedAt *time.Time
+	err := a.db.QueryRowContext(r.Context(),
+		"SELECT conversation_id, created_by, closed_at FROM chat.polls WHERE id=$1", pollID).Scan(&convID, &createdBy, &closedAt)
+	if err == sql.ErrNoRows {
+		fail(w, 404, "poll not found")
+		return
+	}
+	if err != nil {
+		fail(w, 500, "poll lookup failed")
+		return
+	}
+	if !a.isMember(r, convID) {
+		fail(w, 403, "conversation unavailable")
+		return
+	}
+	if createdBy != viewerID {
+		fail(w, 403, "only creator can close poll")
+		return
+	}
+
+	if closedAt == nil {
+		_, err = a.db.ExecContext(r.Context(), "UPDATE chat.polls SET closed_at=now() WHERE id=$1", pollID)
+		if err != nil {
+			fail(w, 500, "poll close failed")
+			return
+		}
+	}
+
+	view, err := a.getPollView(r.Context(), pollID, viewerID)
+	if err != nil {
+		fail(w, 500, "poll view failed")
+		return
+	}
+
+	updatePayload, _ := json.Marshal(map[string]any{
+		"type":            "poll.updated",
+		"conversation_id": convID,
+		"poll_id":         pollID,
+	})
+	a.hub.Notify(a.conversationMemberIDs(r, convID), updatePayload)
+
+	send(w, 200, map[string]any{
+		"status": "closed",
+		"poll":   view,
+	})
 }
 
 func (a *App) createAlbum(w http.ResponseWriter, r *http.Request) {
@@ -662,16 +1047,34 @@ func (a *App) listAlbums(w http.ResponseWriter, r *http.Request) {
 func (a *App) saveMessage(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		MessageID string `json:"message_id"`
+		// Legacy web clients send display fields; stored message data is authoritative.
+		Body string `json:"body"`
+		Kind string `json:"kind"`
 	}
 	if decode(r, &in) != nil || !auth.ValidUUID(in.MessageID) {
 		fail(w, 400, "invalid message_id")
 		return
 	}
-	_, e := a.db.ExecContext(r.Context(), "INSERT INTO chat.saved_messages(user_id,message_id) VALUES ($1,$2) ON CONFLICT DO NOTHING", claims(r).Subject, in.MessageID)
+	var conversationID string
+	e := a.db.QueryRowContext(r.Context(), "SELECT conversation_id FROM chat.messages WHERE id=$1 AND deleted_at IS NULL", in.MessageID).Scan(&conversationID)
+	if e == sql.ErrNoRows {
+		fail(w, 404, "message unavailable")
+		return
+	}
+	if e != nil {
+		fail(w, 500, "message lookup failed")
+		return
+	}
+	if !a.isMember(r, conversationID) {
+		fail(w, 404, "message unavailable")
+		return
+	}
+	_, e = a.db.ExecContext(r.Context(), "INSERT INTO chat.saved_messages(user_id,message_id) VALUES ($1,$2) ON CONFLICT DO NOTHING", claims(r).Subject, in.MessageID)
 	if e != nil {
 		fail(w, 500, "save message failed")
 		return
 	}
+	a.hub.Notify([]string{claims(r).Subject}, []byte(`{"type":"saved-messages.updated"}`))
 	send(w, 201, map[string]string{"status": "saved", "message_id": in.MessageID})
 }
 
@@ -686,12 +1089,16 @@ func (a *App) deleteSavedMessage(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, "delete saved message failed")
 		return
 	}
+	a.hub.Notify([]string{claims(r).Subject}, []byte(`{"type":"saved-messages.updated"}`))
 	send(w, 200, map[string]string{"status": "deleted", "message_id": id})
 }
 
 func (a *App) listSavedMessages(w http.ResponseWriter, r *http.Request) {
 	rows, e := a.db.QueryContext(r.Context(),
-		"SELECT m.id,m.conversation_id,m.body,s.saved_at FROM chat.saved_messages s JOIN chat.messages m ON m.id=s.message_id WHERE s.user_id=$1 ORDER BY s.saved_at DESC",
+		`SELECT m.id,m.conversation_id,m.body,m.kind,s.saved_at FROM chat.saved_messages s JOIN chat.messages m ON m.id=s.message_id
+         WHERE s.user_id=$1 AND m.deleted_at IS NULL
+         AND EXISTS(SELECT 1 FROM chat.conversation_members cm WHERE cm.conversation_id=m.conversation_id AND cm.user_id=$1 AND cm.left_at IS NULL)
+         ORDER BY s.saved_at DESC`,
 		claims(r).Subject)
 	if e != nil {
 		fail(w, 500, "saved messages unavailable")
@@ -700,10 +1107,10 @@ func (a *App) listSavedMessages(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 	out := make([]any, 0)
 	for rows.Next() {
-		var id, cid, body string
+		var id, cid, body, kind string
 		var at any
-		if rows.Scan(&id, &cid, &body, &at) == nil {
-			out = append(out, map[string]any{"message_id": id, "conversation_id": cid, "body": body, "saved_at": at})
+		if rows.Scan(&id, &cid, &body, &kind, &at) == nil {
+			out = append(out, map[string]any{"id": id, "message_id": id, "conversation_id": cid, "body": body, "kind": kind, "created_at": at, "saved_at": at})
 		}
 	}
 	send(w, 200, map[string]any{"saved_messages": out})

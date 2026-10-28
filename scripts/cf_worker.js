@@ -79,7 +79,7 @@ const DEFAULT_PREFS = {
   theme: 'mint', dark_mode: false, language: 'ko', font_size: 'medium',
   show_read_receipts: true, searchable_by_id: true, searchable_by_email: false,
   allow_friend_requests: true, notifications: true, notification_preview: true,
-  letter_sealing: true, wallpaper: 'default'
+  letter_sealing: false, wallpaper: 'default'
 };
 
 function now() { return new Date().toISOString(); }
@@ -302,6 +302,18 @@ const featureFlags = [
   { key: 'ai_smart_replies', enabled: true, description: 'AI-assisted quick responses' },
   { key: 'openchat_live_streaming', enabled: true, description: 'Public community voice stages' }
 ];
+
+function notifyUser(userId, payload) {
+  const msg = JSON.stringify(payload);
+  for (const [ws, socketUserId] of activeSockets) {
+    if (socketUserId !== userId) continue;
+    try {
+      ws.send(msg);
+    } catch {
+      activeSockets.delete(ws);
+    }
+  }
+}
 
 function broadcast(payload) {
   const msg = JSON.stringify(payload);
@@ -1440,8 +1452,40 @@ const loginFailures = new Map();
 
 export default {
   async fetch(request, env, ctx) {
-    await boot();
     const url = new URL(request.url);
+	if (url.pathname === '/api/v1/store/orders' && request.method === 'POST') {
+	  return json({ error: 'payments unavailable: verified provider integration required' }, 503);
+	}
+    // Route the complete API to one persistent backend; never mix its identities
+    // with the isolate-local demo or fall back to demo data on upstream failure.
+    const backendRoute = url.pathname.startsWith('/api/') || ['/healthz', '/readyz', '/metrics'].includes(url.pathname);
+    if (env.API_BACKEND_ORIGIN && backendRoute) {
+      let origin;
+      try {
+        origin = new URL(env.API_BACKEND_ORIGIN);
+        if (origin.protocol !== 'https:' || origin.username || origin.password ||
+            origin.pathname !== '/' || origin.search || origin.hash || origin.origin === url.origin) {
+          throw new Error('invalid origin');
+        }
+      } catch {
+        return json({ error: 'backend configuration invalid' }, 503);
+      }
+      url.protocol = origin.protocol;
+      url.host = origin.host;
+      const upstream = new Request(url, request);
+      upstream.headers.delete('Host');
+      try {
+        return await fetch(new Request(upstream, { redirect: 'manual' }));
+      } catch {
+        return json({ error: 'backend unavailable' }, 502);
+      }
+    }
+    const localDemo = env.ALLOW_LOCAL_DEMO === 'true' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
+    if (!localDemo) {
+      if (backendRoute) return json({ error: 'persistent backend must be configured' }, 503);
+      return env.ASSETS ? env.ASSETS.fetch(request) : new Response('Assets unavailable', { status: 503 });
+    }
+    await boot();
 
     // Handle CORS preflight
     if (request.method === 'OPTIONS') {
@@ -1873,6 +1917,7 @@ export default {
           const smsg = { id: sid, body: body.body || '', kind: body.kind || 'text', created_at: new Date().toISOString() };
           slist.unshift(smsg);
           savedMessages.set(authUser.id, slist);
+          notifyUser(authUser.id, { type: 'saved-messages.updated' });
           return json(smsg, 201);
         }
         if (request.method === 'GET') {
@@ -1885,6 +1930,7 @@ export default {
         let slist = savedMessages.get(authUser.id) || [];
         slist = slist.filter(item => item.id !== sid && item.message_id !== sid);
         savedMessages.set(authUser.id, slist);
+        notifyUser(authUser.id, { type: 'saved-messages.updated' });
         return json({ status: 'deleted', id: sid });
       }
 

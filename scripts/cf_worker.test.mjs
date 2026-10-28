@@ -21,11 +21,18 @@ globalThis.WebSocketPair = class {
   }
 };
 async function api(path, token, method = 'GET', body, extraHeaders = {}) {
-  return worker.fetch(new Request(`https://example.test/api/v1/${path}`, {
+  return worker.fetch(new Request(`http://localhost/api/v1/${path}`, {
     method, headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...extraHeaders },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  }), {});
+  }), { ALLOW_LOCAL_DEMO: 'true' });
 }
+
+test('public hosts cannot enable demo credentials or synthetic payment success', async () => {
+  for (const env of [{}, { ALLOW_LOCAL_DEMO: 'true' }]) {
+    assert.equal((await worker.fetch(new Request('https://example.test/api/v1/auth/login', {method:'POST'}), env)).status,503);
+  }
+  assert.equal((await api('store/orders', null, 'POST', {})).status,503);
+});
 async function login(email, password) {
   return (await (await api('auth/login', null, 'POST', { email, password })).json()).access_token;
 }
@@ -124,10 +131,22 @@ test('private chat access and one-use realtime tickets', async () => {
   assert.equal(bobRsvp.status, 200);
 
   // Keep Vault test: save, list, delete
+  const secondTicket = await (await api('ws-ticket', alice, 'POST')).json();
+  assert.equal((await api(`ws?ticket=${secondTicket.ticket}`, null, 'GET', undefined, { Upgrade: 'websocket' })).status, 101);
+  const secondAliceSocket = sockets.at(-1);
+  const bobEventCount = sockets[1].events.length;
+  const outsiderEventCount = sockets[2].events.length;
   const saveRes = await api('saved-messages', alice, 'POST', { body: 'Important keep note', kind: 'text' });
   assert.equal(saveRes.status, 201);
   const savedItem = await saveRes.json();
   assert.equal(savedItem.body, 'Important keep note');
+  assert.deepEqual(sockets[0].events.at(-1), { type: 'saved-messages.updated' });
+  assert.deepEqual(secondAliceSocket.events, [{ type: 'saved-messages.updated' }]);
+  assert.equal(sockets[1].events.length, bobEventCount);
+  assert.equal(sockets[2].events.length, outsiderEventCount);
+  assert.ok(!(await (await api('saved-messages', bob)).json()).saved_messages.some(item => item.id === savedItem.id));
+  await api(`saved-messages/${savedItem.id}`, bob, 'DELETE');
+  assert.equal(secondAliceSocket.events.length, 1);
 
   const listRes = await api('saved-messages', alice, 'GET');
   assert.equal(listRes.status, 200);
@@ -136,6 +155,11 @@ test('private chat access and one-use realtime tickets', async () => {
 
   const delRes = await api(`saved-messages/${savedItem.id}`, alice, 'DELETE');
   assert.equal(delRes.status, 200);
+  assert.equal(secondAliceSocket.events.length, 2);
+  assert.deepEqual(secondAliceSocket.events.at(-1), { type: 'saved-messages.updated' });
+  assert.ok(!(await (await api('saved-messages', alice)).json()).saved_messages.some(item => item.id === savedItem.id));
+  assert.equal(sockets[1].events.length, bobEventCount + 1);
+  assert.equal(sockets[2].events.length, outsiderEventCount);
 
   // OpenChat Community test: create room, post, like
   const roomRes = await api('community/rooms', alice, 'POST', { name: 'Developers Lounge', description: 'Tech talk' });

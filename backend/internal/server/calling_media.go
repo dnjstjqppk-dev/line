@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -23,29 +24,62 @@ func (a *App) uploadAttachment(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "invalid attachment metadata")
 		return
 	}
-	if in.EncryptionMode == "" {
-		in.EncryptionMode = "none"
+	if in.EncryptionMode != "" && in.EncryptionMode != "none" {
+		fail(w, 400, "unsupported encryption mode")
+		return
 	}
-	if in.ChecksumSHA256 == "" && in.ContentBase64 != "" {
-		in.ChecksumSHA256 = sha256hex(in.ContentBase64)
+	in.EncryptionMode = "none"
+	content, err := base64.StdEncoding.Strict().DecodeString(in.ContentBase64)
+	if err != nil || len(content) == 0 || len(content) > 512*1024 || int64(len(content)) != in.SizeBytes {
+		fail(w, 400, "invalid bytes or size; maximum 512 KiB")
+		return
 	}
+	checksum := sha256hex(string(content))
+	if in.ChecksumSHA256 != "" && !strings.EqualFold(in.ChecksumSHA256, checksum) {
+		fail(w, 400, "checksum mismatch")
+		return
+	}
+	in.ChecksumSHA256 = checksum
 	rnd, e := randomSecret(16)
 	if e != nil {
 		fail(w, 500, "object key generation failed")
 		return
 	}
-	objectKey := "media/" + claims(r).Subject + "/" + rnd + "/" + in.OriginalName
+	objectKey := "media/" + claims(r).Subject + "/" + rnd
 	var msgArg any
-	if in.MessageID != "" && auth.ValidUUID(in.MessageID) {
+	if in.MessageID != "" {
+		var conversationID, senderID string
+		if !auth.ValidUUID(in.MessageID) {
+			fail(w, 400, "invalid message id")
+			return
+		}
+		if err := a.db.QueryRowContext(r.Context(), "SELECT conversation_id,sender_id FROM chat.messages WHERE id=$1 AND deleted_at IS NULL", in.MessageID).Scan(&conversationID, &senderID); err != nil || senderID != claims(r).Subject || !a.isMember(r, conversationID) {
+			fail(w, 403, "message forbidden")
+			return
+		}
 		msgArg = in.MessageID
 	}
 	var id string
-	e = a.db.QueryRowContext(r.Context(),
+	tx, e := a.db.BeginTx(r.Context(), nil)
+	if e != nil {
+		fail(w, 500, "storage unavailable")
+		return
+	}
+	defer tx.Rollback()
+	e = tx.QueryRowContext(r.Context(),
 		`INSERT INTO chat.attachments(message_id,owner_id,object_key,mime_type,original_name,size_bytes,checksum_sha256,encryption_mode,status)
 		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'ready') RETURNING id`,
 		msgArg, claims(r).Subject, objectKey, in.MimeType, in.OriginalName, in.SizeBytes, in.ChecksumSHA256, in.EncryptionMode).Scan(&id)
 	if e != nil {
 		fail(w, 500, "attachment creation failed")
+		return
+	}
+	if _, e = tx.ExecContext(r.Context(), "INSERT INTO chat.attachment_blobs(attachment_id,content) VALUES($1,$2)", id, content); e != nil {
+		fail(w, 500, "byte storage failed")
+		return
+	}
+	if e = tx.Commit(); e != nil {
+		fail(w, 500, "storage commit failed")
 		return
 	}
 	send(w, 201, map[string]any{
@@ -68,11 +102,18 @@ func (a *App) getAttachment(w http.ResponseWriter, r *http.Request) {
 	var ownerID, objKey, mime, origName, checksum, encMode, status string
 	var size int64
 	e := a.db.QueryRowContext(r.Context(),
-		"SELECT owner_id,object_key,mime_type,original_name,size_bytes,COALESCE(checksum_sha256,''),encryption_mode,status FROM chat.attachments WHERE id=$1",
+		"SELECT owner_id,object_key,mime_type,original_name,size_bytes,COALESCE(checksum_sha256,''),encryption_mode,status FROM chat.attachments WHERE id=$1 AND status='ready'",
 		id).Scan(&ownerID, &objKey, &mime, &origName, &size, &checksum, &encMode, &status)
 	if e != nil {
 		fail(w, 404, "attachment not found")
 		return
+	}
+	if ownerID != claims(r).Subject {
+		var conversationID string
+		if err := a.db.QueryRowContext(r.Context(), "SELECT m.conversation_id FROM chat.messages m JOIN chat.attachments a ON a.message_id=m.id WHERE a.id=$1 AND m.deleted_at IS NULL", id).Scan(&conversationID); err != nil || !a.isMember(r, conversationID) {
+			fail(w, 403, "attachment forbidden")
+			return
+		}
 	}
 	send(w, 200, map[string]any{
 		"id":              id,
@@ -220,6 +261,11 @@ func (a *App) recordCallQuality(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "invalid call id")
 		return
 	}
+	var conversationID string
+	if err := a.db.QueryRowContext(r.Context(), "SELECT conversation_id FROM calling.calls WHERE id=$1", callID).Scan(&conversationID); err != nil || !a.isMember(r, conversationID) {
+		fail(w, 403, "call forbidden")
+		return
+	}
 	var in struct {
 		RTTMs           int     `json:"rtt_ms"`
 		JitterMs        int     `json:"jitter_ms"`
@@ -268,6 +314,10 @@ func (a *App) heartbeatPresence(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "invalid device_id")
 		return
 	}
+	if !a.ownsActiveDevice(r, in.DeviceID) {
+		fail(w, 403, "device forbidden")
+		return
+	}
 	_, e := a.db.ExecContext(r.Context(),
 		`INSERT INTO realtime.presence(user_id,device_id,last_heartbeat_at) VALUES ($1,$2,now())
 		 ON CONFLICT(user_id,device_id) DO UPDATE SET last_heartbeat_at=now()`,
@@ -301,15 +351,33 @@ func (a *App) registerPushToken(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "invalid push token")
 		return
 	}
+	if !a.ownsActiveDevice(r, in.DeviceID) {
+		fail(w, 403, "device forbidden")
+		return
+	}
+	if (in.Provider != "fcm" && in.Provider != "apns" && in.Provider != "webpush") || len(in.Token) > 8192 {
+		fail(w, 400, "invalid provider or token")
+		return
+	}
+	encrypted, err := sealPushToken(a.cfg.PushTokenKey, in.DeviceID, in.Provider, in.Token)
+	if err != nil {
+		fail(w, 503, "push token encryption not configured")
+		return
+	}
 	var id string
 	e := a.db.QueryRowContext(r.Context(),
 		"INSERT INTO realtime.push_tokens(device_id,provider,token_ciphertext) VALUES ($1,$2,$3) RETURNING id",
-		in.DeviceID, in.Provider, []byte(in.Token)).Scan(&id)
+		in.DeviceID, in.Provider, encrypted).Scan(&id)
 	if e != nil {
 		fail(w, 500, "push token save failed")
 		return
 	}
 	send(w, 201, map[string]string{"id": id, "provider": in.Provider})
+}
+
+func (a *App) ownsActiveDevice(r *http.Request, deviceID string) bool {
+	var id string
+	return a.db.QueryRowContext(r.Context(), "SELECT id FROM identity.devices WHERE id=$1 AND user_id=$2 AND revoked_at IS NULL", deviceID, claims(r).Subject).Scan(&id) == nil
 }
 
 func (a *App) listStoreStickers(w http.ResponseWriter, r *http.Request) {
@@ -537,4 +605,3 @@ func (a *App) listCommunityPosts(w http.ResponseWriter, r *http.Request) {
 	}
 	send(w, 200, map[string]any{"posts": out})
 }
-

@@ -12,6 +12,7 @@ import (
 )
 
 type Claims struct {
+	SessionID string `json:"sid,omitempty"`
 	Subject   string `json:"sub"`
 	Role      string `json:"role"`
 	Issuer    string `json:"iss"`
@@ -27,12 +28,16 @@ func macBytes(secret []byte, data string) []byte {
 }
 func b64(b []byte) string { return base64.RawURLEncoding.EncodeToString(b) }
 func Sign(subject, role string, secret []byte, ttl time.Duration) (string, error) {
+	return SignSession(subject, role, "", secret, ttl)
+}
+
+func SignSession(subject, role, sessionID string, secret []byte, ttl time.Duration) (string, error) {
 	if len(secret) < 32 {
 		return "", errors.New("JWT_SECRET must be 32+ bytes")
 	}
 	head := b64([]byte(`{"alg":"HS256","typ":"JWT"}`))
 	now := time.Now().UTC()
-	p, e := json.Marshal(Claims{Subject: subject, Role: role, Issuer: "global-messenger", Audience: "messenger-api", IssuedAt: now.Unix(), ExpiresAt: now.Add(ttl).Unix()})
+	p, e := json.Marshal(Claims{Subject: subject, Role: role, SessionID: sessionID, Issuer: "global-messenger", Audience: "messenger-api", IssuedAt: now.Unix(), ExpiresAt: now.Add(ttl).Unix()})
 	if e != nil {
 		return "", e
 	}

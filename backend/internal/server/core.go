@@ -23,15 +23,17 @@ import (
 type Config struct {
 	DSN, Secret, Port, Service string
 	Origins                    []string
+	PushTokenKey               string
 }
 
 func ConfigFromEnv() (Config, error) {
 	cfg := Config{
-		DSN:     os.Getenv("DATABASE_URL"),
-		Secret:  os.Getenv("JWT_SECRET"),
-		Port:    os.Getenv("PORT"),
-		Service: os.Getenv("SERVICE_NAME"),
-		Origins: strings.Split(os.Getenv("ALLOWED_ORIGINS"), ","),
+		DSN:          os.Getenv("DATABASE_URL"),
+		Secret:       os.Getenv("JWT_SECRET"),
+		Port:         os.Getenv("PORT"),
+		Service:      os.Getenv("SERVICE_NAME"),
+		Origins:      strings.Split(os.Getenv("ALLOWED_ORIGINS"), ","),
+		PushTokenKey: os.Getenv("PUSH_TOKEN_ENCRYPTION_KEY"),
 	}
 	if cfg.Port == "" {
 		cfg.Port = "8080"
@@ -49,9 +51,10 @@ func ConfigFromEnv() (Config, error) {
 }
 
 type App struct {
-	db  *sql.DB
-	cfg Config
-	hub *realtime.Hub
+	db     *sql.DB
+	cfg    Config
+	hub    *realtime.Hub
+	limits authLimiter
 }
 
 func New(cfg Config) (*App, error) {
@@ -72,7 +75,7 @@ func New(cfg Config) (*App, error) {
 		db.SetMaxIdleConns(10)
 		db.SetConnMaxLifetime(30 * time.Minute)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	if e = db.PingContext(ctx); e != nil {
 		db.Close()
@@ -96,31 +99,8 @@ func New(cfg Config) (*App, error) {
 				}
 			}
 		}
-		seedDefaultAccounts(ctx, db)
 	}
 	return &App{db: db, cfg: cfg, hub: realtime.New()}, nil
-}
-
-func seedDefaultAccounts(ctx context.Context, db *sql.DB) {
-	seeds := []struct {
-		Email       string
-		Password    string
-		DisplayName string
-		Role        string
-		Handle      string
-	}{
-		{"admin@line.local", "LineAdmin#2026!", "System Administrator", "admin", "line_admin"},
-		{"user@line.local", "LineUser#2026!", "LINE Demo User", "user", "line_user"},
-	}
-	for _, s := range seeds {
-		hash, err := auth.HashPassword(s.Password)
-		if err != nil {
-			continue
-		}
-		_, _ = db.ExecContext(ctx,
-			"INSERT INTO identity.users(email,password_hash,display_name,role,handle,state) VALUES ($1,$2,$3,$4,$5,'active') ON CONFLICT DO NOTHING",
-			s.Email, hash, s.DisplayName, s.Role, s.Handle)
-	}
 }
 
 func (a *App) Close() { _ = a.db.Close() }
@@ -199,6 +179,10 @@ func (a *App) withAuth(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 		c.Role = role
+		if !a.sessionActive(r.Context(), c.Subject, c.SessionID) {
+			fail(w, 401, "session unavailable")
+			return
+		}
 		next(w, r.WithContext(context.WithValue(r.Context(), userKey, c)))
 	}
 }
@@ -301,8 +285,10 @@ func (a *App) Handler() http.Handler {
 		mux.HandleFunc("GET /api/v1/conversations/{id}/pins", a.withAuth(a.listPins))
 		mux.HandleFunc("POST /api/v1/conversations/{id}/read", a.withAuth(a.markRead))
 		mux.HandleFunc("POST /api/v1/conversations/{id}/typing", a.withAuth(a.typing))
+		mux.HandleFunc("GET /api/v1/conversations/{id}/polls", a.withAuth(a.listPolls))
 		mux.HandleFunc("POST /api/v1/conversations/{id}/polls", a.withAuth(a.createPoll))
 		mux.HandleFunc("POST /api/v1/polls/{pollId}/vote", a.withAuth(a.votePoll))
+		mux.HandleFunc("POST /api/v1/polls/{pollId}/close", a.withAuth(a.closePoll))
 		mux.HandleFunc("POST /api/v1/conversations/{id}/albums", a.withAuth(a.createAlbum))
 		mux.HandleFunc("GET /api/v1/conversations/{id}/albums", a.withAuth(a.listAlbums))
 		mux.HandleFunc("POST /api/v1/saved-messages", a.withAuth(a.saveMessage))
@@ -320,6 +306,8 @@ func (a *App) Handler() http.Handler {
 	if active("media", "file", "calling", "call-signaling") {
 		mux.HandleFunc("POST /api/v1/attachments", a.withAuth(a.uploadAttachment))
 		mux.HandleFunc("GET /api/v1/attachments/{id}", a.withAuth(a.getAttachment))
+		mux.HandleFunc("GET /api/v1/attachments/{id}/content", a.withAuth(a.downloadAttachment))
+		mux.HandleFunc("DELETE /api/v1/attachments/{id}", a.withAuth(a.deleteAttachment))
 		mux.HandleFunc("POST /api/v1/calls", a.withAuth(a.startCall))
 		mux.HandleFunc("GET /api/v1/calls", a.withAuth(a.listCalls))
 		mux.HandleFunc("POST /api/v1/calls/{id}/signal", a.withAuth(a.callSignal))
@@ -328,7 +316,9 @@ func (a *App) Handler() http.Handler {
 	}
 	if active("sticker", "payment", "billing", "community") {
 		mux.HandleFunc("GET /api/v1/store/stickers", a.withAuth(a.listStoreStickers))
-		mux.HandleFunc("POST /api/v1/store/orders", a.withAuth(a.createOrder))
+		mux.HandleFunc("POST /api/v1/store/orders", a.withAuth(func(w http.ResponseWriter, r *http.Request) {
+			fail(w, http.StatusServiceUnavailable, "payments unavailable: verified provider integration required")
+		}))
 		mux.HandleFunc("GET /api/v1/store/orders", a.withAuth(a.listOrders))
 		mux.HandleFunc("GET /api/v1/community/rooms", a.withAuth(a.listCommunityRooms))
 		mux.HandleFunc("POST /api/v1/community/rooms", a.withAuth(a.createCommunityRoom))
@@ -385,6 +375,11 @@ func (a *App) Handler() http.Handler {
 	}
 	return a.cors(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
+		if strings.HasPrefix(r.URL.Path, "/api/v1/auth/") && !a.limits.allow(r.RemoteAddr, r.URL.Path, time.Now()) {
+			w.Header().Set("Retry-After", "60")
+			fail(w, 429, "authentication rate limit exceeded")
+			return
+		}
 		mux.ServeHTTP(w, r)
 		if time.Since(start) > 2*time.Second {
 			log.Printf("slow request %s %s elapsed=%s", r.Method, r.URL.Path, time.Since(start))

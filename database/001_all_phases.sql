@@ -114,6 +114,10 @@ CREATE TABLE chat.attachments (
  checksum_sha256 TEXT, encryption_mode TEXT NOT NULL DEFAULT 'none', status TEXT NOT NULL DEFAULT 'pending',
  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+CREATE TABLE chat.attachment_blobs (
+ attachment_id UUID PRIMARY KEY REFERENCES chat.attachments(id) ON DELETE CASCADE,
+ content BYTEA NOT NULL
+);
 CREATE TABLE chat.pinned_messages (
  conversation_id UUID NOT NULL REFERENCES chat.conversations(id), message_id UUID NOT NULL REFERENCES chat.messages(id),
  pinned_by UUID NOT NULL REFERENCES identity.users(id), pinned_at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY(conversation_id,message_id)
@@ -128,7 +132,8 @@ CREATE TABLE chat.album_items (
 );
 CREATE TABLE chat.polls (
  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), conversation_id UUID NOT NULL REFERENCES chat.conversations(id),
- question TEXT NOT NULL, created_by UUID NOT NULL REFERENCES identity.users(id), closes_at TIMESTAMPTZ,
+ question TEXT NOT NULL, multiple BOOLEAN NOT NULL DEFAULT FALSE, created_by UUID NOT NULL REFERENCES identity.users(id),
+ closes_at TIMESTAMPTZ, closed_at TIMESTAMPTZ,
  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE TABLE chat.poll_options (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), poll_id UUID NOT NULL REFERENCES chat.polls(id), label TEXT NOT NULL);
@@ -145,6 +150,11 @@ CREATE TABLE realtime.presence (
  user_id UUID NOT NULL REFERENCES identity.users(id), device_id UUID NOT NULL REFERENCES identity.devices(id),
  last_heartbeat_at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY(user_id,device_id)
 );
+CREATE TABLE realtime.ws_tickets (
+ token_hash TEXT PRIMARY KEY, user_id UUID NOT NULL REFERENCES identity.users(id),
+ expires_at_unix BIGINT NOT NULL
+);
+CREATE INDEX ws_tickets_expiry_idx ON realtime.ws_tickets(expires_at_unix);
 CREATE TABLE realtime.push_tokens (
  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), device_id UUID NOT NULL REFERENCES identity.devices(id),
  provider TEXT NOT NULL, token_ciphertext BYTEA NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(),

@@ -34,6 +34,21 @@ the Cloudflare runtime or cross-isolate delivery. No deployment was performed.
   production use. This continuation is not a full security audit.
 - Validate the existing Go and Flutter changes in their respective runtimes.
 
+## Continuation: 2026-10-28 — Keep synchronization
+
+- Notify all sockets belonging to the authenticated owner after Keep saves and
+  deletions using `saved-messages.updated`; other accounts receive no event.
+- Refresh the web Keep list after notifications and successful mutations, rather
+  than inserting a response locally. Ignore superseded list responses and
+  responses from a previous authentication token.
+- Extend Worker regression coverage for two owner connections, private list
+  visibility, cross-account deletion isolation, and deletion refresh events.
+- Validation: `node --test scripts/cf_worker.test.mjs` passed; all six web apps
+  passed `npm run build:apps`; edited source files have no editor diagnostics.
+- These tests simulate WebSocketPair. Cross-isolate delivery and durable Keep
+  storage remain unresolved; Go backend Keep events and browser interaction
+  tests are not covered by this change. No deployment performed in this turn.
+
 ## Continuation: 2026-10-27 — requirement 046 poll synchronization
 
 - Emit a member-scoped `poll.updated` event on Worker poll creation so other

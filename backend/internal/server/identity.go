@@ -96,21 +96,36 @@ func (a *App) login(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) issueSessionTokens(r *http.Request, userID, role, deviceName, platform string, trusted bool) (map[string]any, error) {
-	token, e := auth.Sign(userID, role, []byte(a.cfg.Secret), 15*time.Minute)
+	tx, e := a.db.BeginTx(r.Context(), nil)
 	if e != nil {
 		return nil, e
 	}
+	defer tx.Rollback()
 	var deviceID string
-	_ = a.db.QueryRowContext(r.Context(),
+	e = tx.QueryRowContext(r.Context(),
 		"INSERT INTO identity.devices(user_id,name,platform,trusted,last_seen_at) VALUES ($1,$2,$3,$4,now()) RETURNING id",
 		userID, deviceName, platform, trusted).Scan(&deviceID)
-	refreshRaw, _ := randomSecret(32)
+	if e != nil {
+		return nil, e
+	}
+	refreshRaw, e := randomSecret(32)
+	if e != nil {
+		return nil, e
+	}
 	var sessionID string
-	if refreshRaw != "" && deviceID != "" {
-		exp := time.Now().UTC().Add(30 * 24 * time.Hour).Format(time.RFC3339)
-		_ = a.db.QueryRowContext(r.Context(),
-			"INSERT INTO identity.sessions(user_id,device_id,refresh_token_hash,expires_at,last_seen_at) VALUES ($1,$2,$3,$4,now()) RETURNING id",
-			userID, deviceID, sha256hex(refreshRaw), exp).Scan(&sessionID)
+	exp := time.Now().UTC().Add(30 * 24 * time.Hour).Format(time.RFC3339)
+	e = tx.QueryRowContext(r.Context(),
+		"INSERT INTO identity.sessions(user_id,device_id,refresh_token_hash,expires_at,last_seen_at) VALUES ($1,$2,$3,$4,now()) RETURNING id",
+		userID, deviceID, sha256hex(refreshRaw), exp).Scan(&sessionID)
+	if e != nil {
+		return nil, e
+	}
+	token, e := auth.SignSession(userID, role, sessionID, []byte(a.cfg.Secret), 15*time.Minute)
+	if e != nil {
+		return nil, e
+	}
+	if e = tx.Commit(); e != nil {
+		return nil, e
 	}
 	return map[string]any{
 		"access_token":  token,
@@ -135,10 +150,14 @@ func (a *App) refreshToken(w http.ResponseWriter, r *http.Request) {
 	var sessionID, userID, deviceID string
 	var revoked any
 	e := a.db.QueryRowContext(r.Context(),
-		"SELECT id,user_id,COALESCE(device_id,''),revoked_at FROM identity.sessions WHERE refresh_token_hash=$1",
+		"SELECT id,user_id,COALESCE(device_id,''),revoked_at FROM identity.sessions WHERE refresh_token_hash=$1 AND expires_at > now()",
 		sha256hex(in.RefreshToken)).Scan(&sessionID, &userID, &deviceID, &revoked)
 	if e != nil || revoked != nil {
 		fail(w, 401, "invalid or revoked refresh token")
+		return
+	}
+	if !a.sessionActive(r.Context(), userID, sessionID) {
+		fail(w, 401, "session unavailable")
 		return
 	}
 	var role, state string
@@ -152,14 +171,18 @@ func (a *App) refreshToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	exp := time.Now().UTC().Add(30 * 24 * time.Hour).Format(time.RFC3339)
-	_, e = a.db.ExecContext(r.Context(),
-		"UPDATE identity.sessions SET refresh_token_hash=$2,expires_at=$3,last_seen_at=now() WHERE id=$1",
-		sessionID, sha256hex(newRefresh), exp)
+	result, e := a.db.ExecContext(r.Context(),
+		"UPDATE identity.sessions SET refresh_token_hash=$2,expires_at=$3,last_seen_at=now() WHERE id=$1 AND refresh_token_hash=$4 AND revoked_at IS NULL AND expires_at > now()",
+		sessionID, sha256hex(newRefresh), exp, sha256hex(in.RefreshToken))
 	if e != nil {
 		fail(w, 500, "session rotation failed")
 		return
 	}
-	access, e := auth.Sign(userID, role, []byte(a.cfg.Secret), 15*time.Minute)
+	if affected, err := result.RowsAffected(); err != nil || affected != 1 {
+		fail(w, 401, "invalid or revoked refresh token")
+		return
+	}
+	access, e := auth.SignSession(userID, role, sessionID, []byte(a.cfg.Secret), 15*time.Minute)
 	if e != nil {
 		fail(w, 500, "token signing failed")
 		return
@@ -235,20 +258,15 @@ func (a *App) qrApprove(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "invalid qr approval request")
 		return
 	}
-	var codeHash, purpose string
-	var consumed any
-	e := a.db.QueryRowContext(r.Context(),
-		"SELECT code_hash,purpose,consumed_at FROM identity.verification_challenges WHERE id=$1",
-		in.ChallengeID).Scan(&codeHash, &purpose, &consumed)
-	if e != nil || purpose != "qr_login" || consumed != nil || codeHash != sha256hex(in.QRToken) {
-		fail(w, 400, "invalid or expired qr challenge")
-		return
-	}
-	_, e = a.db.ExecContext(r.Context(),
-		"UPDATE identity.verification_challenges SET user_id=$2 WHERE id=$1 AND consumed_at IS NULL",
-		in.ChallengeID, claims(r).Subject)
+	result, e := a.db.ExecContext(r.Context(),
+		"UPDATE identity.verification_challenges SET user_id=$2 WHERE id=$1 AND purpose='qr_login' AND code_hash=$3 AND user_id IS NULL AND consumed_at IS NULL AND expires_at > now()",
+		in.ChallengeID, claims(r).Subject, sha256hex(in.QRToken))
 	if e != nil {
 		fail(w, 500, "qr approval failed")
+		return
+	}
+	if n, err := result.RowsAffected(); err != nil || n != 1 {
+		fail(w, 409, "invalid expired or already approved qr challenge")
 		return
 	}
 	payload, _ := json.Marshal(map[string]any{"type": "device.qr_approved", "challenge_id": in.ChallengeID, "user_id": claims(r).Subject})
@@ -269,7 +287,7 @@ func (a *App) qrPoll(w http.ResponseWriter, r *http.Request) {
 	var userID, dest, codeHash string
 	var consumed any
 	e := a.db.QueryRowContext(r.Context(),
-		"SELECT COALESCE(user_id,''),destination,code_hash,consumed_at FROM identity.verification_challenges WHERE id=$1 AND purpose='qr_login'",
+		"SELECT COALESCE(user_id,''),destination,code_hash,consumed_at FROM identity.verification_challenges WHERE id=$1 AND purpose='qr_login' AND expires_at > now()",
 		in.ChallengeID).Scan(&userID, &dest, &codeHash, &consumed)
 	if e != nil || codeHash != sha256hex(in.QRToken) {
 		fail(w, 401, "invalid qr challenge")
@@ -283,9 +301,13 @@ func (a *App) qrPoll(w http.ResponseWriter, r *http.Request) {
 		send(w, 202, map[string]string{"status": "pending"})
 		return
 	}
-	_, e = a.db.ExecContext(r.Context(), "UPDATE identity.verification_challenges SET consumed_at=now() WHERE id=$1 AND consumed_at IS NULL", in.ChallengeID)
+	result, e := a.db.ExecContext(r.Context(), "UPDATE identity.verification_challenges SET consumed_at=now() WHERE id=$1 AND consumed_at IS NULL AND expires_at > now() AND user_id=$2 AND code_hash=$3", in.ChallengeID, userID, sha256hex(in.QRToken))
 	if e != nil {
 		fail(w, 500, "qr challenge consumption failed")
+		return
+	}
+	if n, err := result.RowsAffected(); err != nil || n != 1 {
+		fail(w, 409, "qr challenge unavailable")
 		return
 	}
 	var role, state string

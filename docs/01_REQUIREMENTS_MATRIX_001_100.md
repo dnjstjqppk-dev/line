@@ -1,5 +1,30 @@
 # LINE-Grade Global Messenger: 001~100 Full Requirements & Implementation Matrix
 
+## Current verification policy (2026-10-28)
+
+Latest local audit checkpoint: [current completion matrix](MESSENGER_FEATURE_COMPLETION_MATRIX.md),
+[test results](LOCAL_TEST_RESULTS.md), and [security findings](SECURITY_AUDIT.md).
+Overall status is LOCAL_PARTIAL, not release-ready. Refresh-token and resource
+authorization regressions were fixed and tested; debug APK built, device tests pending.
+
+The historical statuses below describe prior implementation/test claims, not
+production readiness. In particular, `VERIFIED_PASS` does not certify the full
+feature named in a row. Current local and release verification are tracked
+separately. Unreviewed scope descriptions remain historical, too.
+
+See [implementation roadmap](IMPLEMENTATION_ROADMAP.md) for architecture,
+stage gates, local-only handoff instructions and remaining work.
+
+| Requirement | Current implementation | Local evidence | Release verification |
+|---|---|---|---|
+| 012, 016 | Optional Worker-to-Go API/WS proxy | Mock fetch contract tests pass; complete UI parity pending | NOT_VERIFIED |
+| 017, 036, 049 | Go DB-backed messages/Keep; Keep authorization and response fields corrected | SQLite restart, duplicate retry and access-isolation test passes | NOT_VERIFIED: PostgreSQL integration pending |
+| 018 | Shared DB single-use tickets; process-local fanout | Shared-ticket regression added; see handoff for final result | NOT_VERIFIED: distributed event delivery pending |
+| 050 | Existing server catch-up API; offline client queue incomplete | No new full offline acceptance test | NOT_VERIFIED |
+| 052, 055, 056, 057 | Key/signaling scaffolding is not full E2EE or actual media transport | Full feature NOT_VERIFIED | NOT_VERIFIED |
+| 087, 089 | Commerce/ledger scaffolding | Real payment/refund/settlement NOT_VERIFIED | NOT_VERIFIED |
+| 100 | Commercial launch gate remains BLOCKED | Open blockers in roadmap and security report | BLOCKED |
+
 ## Phase 0: Product Design & Baseline (001~010)
 
 | ID | Item | Scope & Description | Target Component | Status |

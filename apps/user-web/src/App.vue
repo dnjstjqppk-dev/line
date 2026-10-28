@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref } from 'vue'
 import {
+  API_URL,
   request,
   newClientID,
   wsURL,
@@ -37,6 +38,8 @@ const searchKeyword = ref('')
 const foundUsers = ref<User[]>([])
 const draftMessage = ref('')
 const replyToMessage = ref<Message | null>(null)
+const attachmentInput = ref<HTMLInputElement | null>(null)
+const uploading = ref(false)
 const activeDrawer = ref<'none' | 'notes' | 'albums' | 'events' | 'media'>('none')
 
 // --- Pinned Announcements & Polls ---
@@ -258,6 +261,8 @@ async function connectRealtime() {
           }
         } else if (data.type === 'poll.updated') {
           if (data.conversation_id === selectedChatId.value) void loadPolls(selectedChatId.value)
+        } else if (data.type === 'saved-messages.updated') {
+          void loadKeep()
         }
       } catch {
         // ignore malformed ws message
@@ -290,9 +295,13 @@ async function loadOfficialAccounts() {
   } catch {}
 }
 
+let keepLoadVersion = 0
 async function loadKeep() {
+  const version = ++keepLoadVersion
+  const sessionToken = token.value
   try {
     const res = await api<{ saved_messages: any[] }>('/api/v1/saved-messages')
+    if (version !== keepLoadVersion || sessionToken !== token.value) return
     keepItems.value = res.saved_messages || []
   } catch {}
 }
@@ -426,31 +435,62 @@ async function sendSticker(stickerChar: string) {
   })
 }
 
-async function sendAttachmentMock(kind: 'image' | 'voice' | 'file') {
-  if (!selectedChatId.value) return
-  await wrap(async () => {
-    const names = { image: 'photo_summer.jpg', voice: 'voice_note.m4a', file: 'project_brief.pdf' }
-    const mimes = { image: 'image/jpeg', voice: 'audio/m4a', file: 'application/pdf' }
+function chooseAttachment(kind: 'image' | 'voice' | 'file') {
+  if (attachmentInput.value) {
+    attachmentInput.value.accept = kind === 'image' ? 'image/*' : kind === 'voice' ? 'audio/*' : '*/*'
+    attachmentInput.value.click()
+  }
+}
+
+async function uploadSelectedFile(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  const conversation = selectedChatId.value
+  if (!file || !conversation || uploading.value) return
+  if (file.size === 0 || file.size > 512 * 1024) { error.value = '현재 파일 전송 한도는 512 KiB입니다.'; return }
+  uploading.value = true
+  try { await wrap(async () => {
+    const bytes = new Uint8Array(await file.arrayBuffer())
+    let binary = ''
+    for (const byte of bytes) binary += String.fromCharCode(byte)
+    const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))
+    const checksum = Array.from(digest, b => b.toString(16).padStart(2, '0')).join('')
+    const kind = file.type.startsWith('image/') ? 'image' : file.type.startsWith('audio/') ? 'audio' : file.type.startsWith('video/') ? 'video' : 'file'
     const att = await api<{ id: string; original_name: string }>('/api/v1/attachments', 'POST', {
-      conversation_id: selectedChatId.value,
-      original_name: names[kind],
-      mime_type: mimes[kind],
-      content_base64: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='
+      original_name: file.name,
+      mime_type: file.type || 'application/octet-stream',
+      size_bytes: file.size,
+      checksum_sha256: checksum,
+      content_base64: btoa(binary)
     })
-    const res = await api<{ message: Message }>(`/api/v1/conversations/${selectedChatId.value}/messages`, 'POST', {
+    const res = await api<{ message: Message }>(`/api/v1/conversations/${conversation}/messages`, 'POST', {
       client_id: newClientID(),
       kind,
       body: att.original_name,
-      metadata: { attachment_id: att.id, mime_type: mimes[kind], duration: kind === 'voice' ? 7 : undefined }
+      metadata: { attachment_id: att.id, mime_type: file.type, size_bytes: file.size }
     })
-    if (!messages.value.some(m => m.id === res.message.id)) {
-      messages.value.push(res.message)
-    }
+    if (selectedChatId.value === conversation && !messages.value.some(m => m.id === res.message.id)) messages.value.push(res.message)
     await loadChats()
+  }) } finally { uploading.value = false }
+}
+
+async function downloadAttachment(message: Message) {
+  const id = message.metadata?.attachment_id
+  if (typeof id !== 'string') return
+  await wrap(async () => {
+    const response = await fetch(`${API_URL}/api/v1/attachments/${encodeURIComponent(id)}/content`, { headers: { Authorization: `Bearer ${token.value}` } })
+    if (!response.ok) throw new Error('파일을 다운로드할 수 없습니다.')
+    const url = URL.createObjectURL(await response.blob())
+    const link = document.createElement('a')
+    link.href = url
+    link.download = message.body || 'attachment'
+    link.click()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
   })
 }
 
-// React to message with LINE's 6 emoji reactions
+// React to a message
 async function reactToMessage(msgId: string, emoji: string) {
   if (!selectedChatId.value) return
   await wrap(async () => {
@@ -497,12 +537,12 @@ async function unpinMessage(msgId: string) {
 // Save message to Keep
 async function saveToKeep(msg: Message) {
   await wrap(async () => {
-    const item = await api<any>('/api/v1/saved-messages', 'POST', {
+    await api('/api/v1/saved-messages', 'POST', {
       body: msg.body,
       kind: msg.kind,
       message_id: msg.id
     })
-    keepItems.value.unshift(item)
+    await loadKeep()
     note.value = '라인 Keep 보관함에 저장되었습니다.'
   })
 }
@@ -512,7 +552,7 @@ async function deleteFromKeep(item: any) {
   if (!sid) return
   await wrap(async () => {
     await api(`/api/v1/saved-messages/${sid}`, 'DELETE')
-    keepItems.value = keepItems.value.filter(k => (k.id || k.message_id) !== sid)
+    await loadKeep()
     note.value = 'Keep 보관함에서 항목을 삭제했습니다.'
   })
 }
@@ -735,7 +775,8 @@ function switchTheme(theme: 'mint' | 'ocean' | 'sunset' | 'sakura' | 'midnight')
 }
 
 // --- Logout ---
-function logout() {
+async function logout() {
+  try { await api('/api/v1/auth/logout', 'POST', {}) } catch { error.value = '서버 로그아웃을 확인하지 못했습니다. 기기 관리에서 세션을 폐기하세요.' }
   token.value = ''
   currentUser.value = null
   chats.value = []
@@ -1147,7 +1188,7 @@ onBeforeUnmount(() => {
                 <span v-if="selectedChat.kind === 'group'" class="member-pill">👥 {{ selectedChat.member_count || 2 }}</span>
                 <span v-if="selectedChat.official" class="badge-verified">✓ 공식계정</span>
               </div>
-              <small class="e2ee-tag">🔒 Letter Sealing 종단간 암호화 적용됨</small>
+              <small class="e2ee-tag">종단간 암호화 미지원</small>
             </div>
           </div>
 
@@ -1243,7 +1284,7 @@ onBeforeUnmount(() => {
 
                     <!-- Image / Attachment -->
                     <div v-else-if="m.kind === 'image'" class="attachment-bubble">
-                      <div class="mock-image-preview">🖼️ {{ m.body }}</div>
+                      <div>🖼️ {{ m.body }}</div>
                     </div>
 
                     <!-- Call log bubble -->
@@ -1257,6 +1298,7 @@ onBeforeUnmount(() => {
                     </div>
                   </div>
 
+                  <button v-if="m.metadata?.attachment_id && !m.unsent" class="btn-tool" @click="downloadAttachment(m)">파일 다운로드</button>
                   <!-- Reactions Badges on Bubble -->
                   <div v-if="m.reactions && Object.keys(m.reactions).length" class="reaction-badge-group">
                     <span v-for="(count, emoji) in m.reactions" :key="emoji" class="reaction-pill">
@@ -1369,12 +1411,14 @@ onBeforeUnmount(() => {
         <footer class="chat-composer">
           <!-- Attachment bar icons -->
           <div class="composer-toolbar">
-            <button class="btn-tool" title="사진 전송" @click="sendAttachmentMock('image')">📷</button>
+            <input ref="attachmentInput" type="file" hidden @change="uploadSelectedFile" />
+            <span v-if="uploading" role="status">파일 전송 중…</span>
+            <button class="btn-tool" title="사진 전송" :disabled="uploading" @click="chooseAttachment('image')">📷</button>
             <button class="btn-tool" title="스티커 열기" @click="showStickerPicker = !showStickerPicker">😊</button>
-            <button class="btn-tool" title="음성 메모" @click="sendAttachmentMock('voice')">🎙️</button>
+            <button class="btn-tool" title="음성 파일 선택" :disabled="uploading" @click="chooseAttachment('voice')">🎙️</button>
             <button class="btn-tool" title="투표 만들기" @click="showPollCreateModal = true">📊</button>
             <button class="btn-tool" title="일정 등록" @click="showEventCreateModal = true">📅</button>
-            <button class="btn-tool" title="파일 첨부" @click="sendAttachmentMock('file')">📎</button>
+            <button class="btn-tool" title="파일 첨부" :disabled="uploading" @click="chooseAttachment('file')">📎</button>
           </div>
 
           <form class="composer-input-area" @submit.prevent="sendMessage">
@@ -1624,8 +1668,8 @@ onBeforeUnmount(() => {
           </div>
 
           <div class="setting-toggle-row">
-            <span>🔒 Letter Sealing 종단간 암호화</span>
-            <input type="checkbox" checked disabled />
+            <span>종단간 암호화 — 현재 미지원</span>
+            <input type="checkbox" disabled aria-label="종단간 암호화 미지원" />
           </div>
           <div class="setting-toggle-row">
             <span>👀 읽음 확인 표시 (Read Receipts)</span>
