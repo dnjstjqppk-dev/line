@@ -76,3 +76,56 @@ function openOfflineDB(): Promise<IDBDatabase> {
 }
 
 export { openOfflineDB }
+// --- Signal Protocol Key Management (IndexedDB) ---
+const SIGNAL_DB_NAME = 'line_signal_protocol'
+const SIGNAL_STORE = 'sessions'
+
+async function openSignalDB(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(SIGNAL_DB_NAME, 1)
+    req.onupgradeneeded = () => {
+      const db = req.result
+      if (!db.objectStoreNames.contains(SIGNAL_STORE)) {
+        db.createObjectStore(SIGNAL_STORE, { keyPath: 'conversationId' })
+      }
+    }
+    req.onsuccess = () => resolve(req.result)
+    req.onerror = () => reject(req.error)
+  })
+}
+
+async function storeSignalSession(conversationId: string, session: any): Promise<void> {
+  const db = await openSignalDB()
+  const tx = db.transaction(SIGNAL_STORE, 'readwrite')
+  tx.objectStore(SIGNAL_STORE).put({ conversationId, ...session, updated_at: Date.now() })
+  await new Promise<void>((resolve, reject) => {
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error)
+  })
+  db.close()
+}
+
+async function loadSignalSession(conversationId: string): Promise<any | null> {
+  const db = await openSignalDB()
+  const tx = db.transaction(SIGNAL_STORE, 'readonly')
+  const req = tx.objectStore(SIGNAL_STORE).get(conversationId)
+  const result = await new Promise<any>((resolve, reject) => {
+    req.onsuccess = () => resolve(req.result)
+    req.onerror = () => reject(req.error)
+  })
+  db.close()
+  return result || null
+}
+
+async function deleteSignalSession(conversationId: string): Promise<void> {
+  const db = await openSignalDB()
+  const tx = db.transaction(SIGNAL_STORE, 'readwrite')
+  tx.objectStore(SIGNAL_STORE).delete(conversationId)
+  await new Promise<void>((resolve, reject) => {
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error)
+  })
+  db.close()
+}
+
+export { storeSignalSession, loadSignalSession, deleteSignalSession }
