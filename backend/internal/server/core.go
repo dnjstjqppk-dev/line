@@ -310,6 +310,7 @@ func (a *App) Handler() http.Handler {
 		mux.HandleFunc("GET /api/v1/push/credentials", a.withAuth(a.pushCredentialCheck))
 		mux.HandleFunc("POST /api/v1/push/test", a.withAuth(a.pushTest))
 		mux.HandleFunc("GET /api/v1/push/health", a.withAuth(a.pushHealth))
+		mux.HandleFunc("GET /api/v1/system/health", a.systemHealth)
 		mux.HandleFunc("GET /api/v1/me", a.withAuth(a.me))
 		mux.HandleFunc("PATCH /api/v1/me", a.withAuth(a.updateMe))
 		mux.HandleFunc("GET /api/v1/me/settings", a.withAuth(a.getSettings))
