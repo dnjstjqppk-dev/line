@@ -19,6 +19,7 @@ CREATE TABLE identity.users (
  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), email TEXT NOT NULL, password_hash TEXT NOT NULL,
  display_name TEXT NOT NULL CHECK(length(display_name) BETWEEN 1 AND 120),
  handle TEXT UNIQUE, phone_e164 TEXT UNIQUE, avatar_url TEXT, bio TEXT NOT NULL DEFAULT '',
+ email_verified BOOLEAN NOT NULL DEFAULT false, phone_verified BOOLEAN NOT NULL DEFAULT false,
  role TEXT NOT NULL DEFAULT 'user' CHECK(role IN ('user','support','moderator','platform_admin')),
  state TEXT NOT NULL DEFAULT 'active' CHECK(state IN ('active','suspended','deleted')),
  locale TEXT NOT NULL DEFAULT 'ko', created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -112,7 +113,20 @@ CREATE TABLE chat.attachments (
  owner_id UUID NOT NULL REFERENCES identity.users(id), object_key TEXT NOT NULL UNIQUE,
  mime_type TEXT NOT NULL, original_name TEXT NOT NULL, size_bytes BIGINT NOT NULL CHECK(size_bytes>=0),
  checksum_sha256 TEXT, encryption_mode TEXT NOT NULL DEFAULT 'none', status TEXT NOT NULL DEFAULT 'pending',
- created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+ thumbnail_base64 TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE chat.upload_sessions (
+ id UUID PRIMARY KEY DEFAULT gen_random_uuid(), owner_id UUID NOT NULL REFERENCES identity.users(id),
+ original_name TEXT NOT NULL, mime_type TEXT NOT NULL, total_size BIGINT NOT NULL CHECK(total_size>=0),
+ chunk_size BIGINT NOT NULL DEFAULT 65536, received_bytes BIGINT NOT NULL DEFAULT 0,
+ status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','uploading','completed','failed','expired')),
+ checksum_sha256 TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+ updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), expires_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE chat.upload_chunks (
+ session_id UUID NOT NULL REFERENCES chat.upload_sessions(id) ON DELETE CASCADE,
+ chunk_number INT NOT NULL, content BYTEA NOT NULL, size_bytes INT NOT NULL,
+ received_at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY(session_id, chunk_number)
 );
 CREATE TABLE chat.attachment_blobs (
  attachment_id UUID PRIMARY KEY REFERENCES chat.attachments(id) ON DELETE CASCADE,
@@ -160,6 +174,11 @@ CREATE TABLE realtime.push_tokens (
  provider TEXT NOT NULL, token_ciphertext BYTEA NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
  revoked_at TIMESTAMPTZ
 );
+CREATE TABLE realtime.push_queue (
+ id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, user_id UUID NOT NULL REFERENCES identity.users(id),
+ device_id UUID REFERENCES identity.devices(id), title TEXT, body TEXT, payload JSONB NOT NULL DEFAULT '{}',
+ created_at TIMESTAMPTZ NOT NULL DEFAULT now(), delivered_at TIMESTAMPTZ, failed_at TIMESTAMPTZ, attempts INT NOT NULL DEFAULT 0
+);
 CREATE TABLE realtime.notification_settings (
  user_id UUID PRIMARY KEY REFERENCES identity.users(id), push_enabled BOOLEAN NOT NULL DEFAULT true,
  show_preview BOOLEAN NOT NULL DEFAULT false, quiet_start TIME, quiet_end TIME, updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -171,6 +190,18 @@ CREATE TABLE realtime.delivery_outbox (
 );
 CREATE INDEX delivery_outbox_pending_idx ON realtime.delivery_outbox(created_at) WHERE published_at IS NULL;
 
+CREATE TABLE realtime.outbox_deliveries (
+ id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, outbox_id BIGINT NOT NULL REFERENCES realtime.delivery_outbox(id),
+ instance_id TEXT NOT NULL, delivered_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+ UNIQUE(outbox_id, instance_id)
+);
+CREATE INDEX outbox_deliveries_instance_idx ON realtime.outbox_deliveries(instance_id, outbox_id);
+
+CREATE TABLE calling.call_signals (
+ id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, call_id UUID NOT NULL REFERENCES calling.calls(id),
+ from_user_id UUID NOT NULL REFERENCES identity.users(id), signal_type TEXT NOT NULL,
+ sdp TEXT, candidate TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 CREATE TABLE calling.calls (
  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), conversation_id UUID REFERENCES chat.conversations(id),
  initiated_by UUID NOT NULL REFERENCES identity.users(id), kind TEXT NOT NULL CHECK(kind IN ('voice','video')),
@@ -409,6 +440,9 @@ CREATE TABLE ops.audit_logs (
  ip_address INET, created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX audit_created_idx ON ops.audit_logs(created_at DESC);
+CREATE TABLE ops.schema_migrations (
+ version TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 CREATE TABLE ops.feature_flags (
  key TEXT PRIMARY KEY, enabled BOOLEAN NOT NULL DEFAULT false, config JSONB NOT NULL DEFAULT '{}'::jsonb,
  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()

@@ -331,23 +331,25 @@ func (a *App) qrPoll(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) me(w http.ResponseWriter, r *http.Request) {
 	var id, email, name, role, handle, phone, avatar, bio, locale string
+	var emailVerified bool
 	e := a.db.QueryRowContext(r.Context(),
-		"SELECT id,email,display_name,role,COALESCE(handle,''),COALESCE(phone_e164,''),COALESCE(avatar_url,''),bio,locale FROM identity.users WHERE id=$1",
-		claims(r).Subject).Scan(&id, &email, &name, &role, &handle, &phone, &avatar, &bio, &locale)
+		"SELECT id,email,display_name,role,COALESCE(handle,''),COALESCE(phone_e164,''),COALESCE(avatar_url,''),bio,locale,email_verified FROM identity.users WHERE id=$1",
+		claims(r).Subject).Scan(&id, &email, &name, &role, &handle, &phone, &avatar, &bio, &locale, &emailVerified)
 	if e != nil {
 		fail(w, 404, "not found")
 		return
 	}
-	send(w, 200, map[string]string{
-		"id":           id,
-		"email":        email,
-		"display_name": name,
-		"role":         role,
-		"handle":       handle,
-		"phone_e164":   phone,
-		"avatar_url":   avatar,
-		"bio":          bio,
-		"locale":       locale,
+	send(w, 200, map[string]any{
+		"id":             id,
+		"email":          email,
+		"display_name":   name,
+		"role":           role,
+		"handle":         handle,
+		"phone_e164":     phone,
+		"avatar_url":     avatar,
+		"bio":            bio,
+		"locale":         locale,
+		"email_verified": emailVerified,
 	})
 }
 
@@ -613,4 +615,233 @@ func (a *App) listBackups(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	send(w, 200, map[string]any{"backups": out})
+}
+
+// changePassword allows an authenticated user to change their password and revoke all other sessions.
+func (a *App) changePassword(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		CurrentPassword string `json:"current_password"`
+		NewPassword     string `json:"new_password"`
+	}
+	if decode(r, &in) != nil || len(in.NewPassword) < 12 {
+		fail(w, 400, "invalid password change request")
+		return
+	}
+	uid := claims(r).Subject
+	var hash string
+	if e := a.db.QueryRowContext(r.Context(), "SELECT password_hash FROM identity.users WHERE id=$1", uid).Scan(&hash); e != nil {
+		fail(w, 404, "user not found")
+		return
+	}
+	if !auth.CheckPassword(in.CurrentPassword, hash) {
+		fail(w, 401, "current password incorrect")
+		return
+	}
+	newHash, e := auth.HashPassword(in.NewPassword)
+	if e != nil {
+		fail(w, 400, e.Error())
+		return
+	}
+	_, e = a.db.ExecContext(r.Context(), "UPDATE identity.users SET password_hash=$1,updated_at=now() WHERE id=$2", newHash, uid)
+	if e != nil {
+		fail(w, 500, "password change failed")
+		return
+	}
+	sid := claims(r).SessionID
+	if auth.ValidUUID(sid) {
+		_, _ = a.db.ExecContext(r.Context(), "UPDATE identity.sessions SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL AND id <> $2", uid, sid)
+	} else {
+		_, _ = a.db.ExecContext(r.Context(), "UPDATE identity.sessions SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL", uid)
+	}
+	send(w, 200, map[string]string{"status": "password_changed"})
+}
+
+// recoverAccount initiates account recovery by creating a single-use recovery challenge.
+func (a *App) recoverAccount(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Email string `json:"email"`
+	}
+	if decode(r, &in) != nil || !strings.Contains(in.Email, "@") {
+		fail(w, 400, "invalid email")
+		return
+	}
+	in.Email = strings.ToLower(strings.TrimSpace(in.Email))
+	var userID string
+	if e := a.db.QueryRowContext(r.Context(), "SELECT id FROM identity.users WHERE email=$1 AND state='active'", in.Email).Scan(&userID); e != nil {
+		send(w, 200, map[string]string{"status": "recovery_token_sent_if_account_exists"})
+		return
+	}
+	code, e := randomSecret(24)
+	if e != nil {
+		fail(w, 500, "recovery token generation failed")
+		return
+	}
+	exp := time.Now().UTC().Add(15 * time.Minute).Format(time.RFC3339)
+	var challengeID string
+	e = a.db.QueryRowContext(r.Context(),
+		"INSERT INTO identity.verification_challenges(user_id,destination,purpose,code_hash,expires_at) VALUES ($1,$2,'account_recovery',$3,$4) RETURNING id",
+		userID, in.Email, sha256hex(code), exp).Scan(&challengeID)
+	if e != nil {
+		fail(w, 500, "recovery challenge creation failed")
+		return
+	}
+	send(w, 200, map[string]string{
+		"status":           "recovery_token_sent_if_account_exists",
+		"challenge_id":     challengeID,
+		"recovery_code":    code, // Remove in production; deliver via email/SMS
+	})
+}
+
+// verifyRecovery verifies a recovery challenge and allows password reset.
+func (a *App) verifyRecovery(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		ChallengeID  string `json:"challenge_id"`
+		RecoveryCode string `json:"recovery_code"`
+		NewPassword  string `json:"new_password"`
+	}
+	if decode(r, &in) != nil || !auth.ValidUUID(in.ChallengeID) || len(in.RecoveryCode) < 16 || len(in.NewPassword) < 12 {
+		fail(w, 400, "invalid recovery request")
+		return
+	}
+	var userID, codeHash string
+	var consumed any
+	e := a.db.QueryRowContext(r.Context(),
+		"SELECT user_id,code_hash,consumed_at FROM identity.verification_challenges WHERE id=$1 AND purpose='account_recovery' AND expires_at > now()",
+		in.ChallengeID).Scan(&userID, &codeHash, &consumed)
+	if e != nil || userID == "" || consumed != nil || codeHash != sha256hex(in.RecoveryCode) {
+		fail(w, 401, "invalid or expired recovery challenge")
+		return
+	}
+	var state string
+	if e := a.db.QueryRowContext(r.Context(), "SELECT state FROM identity.users WHERE id=$1", userID).Scan(&state); e != nil || state != "active" {
+		fail(w, 401, "invalid or expired recovery challenge")
+		return
+	}
+	newHash, e := auth.HashPassword(in.NewPassword)
+	if e != nil {
+		fail(w, 400, e.Error())
+		return
+	}
+	res, e := a.db.ExecContext(r.Context(),
+		"UPDATE identity.users SET password_hash=$1,updated_at=now() WHERE id=$2 AND state='active'", newHash, userID)
+	if e != nil {
+		fail(w, 500, "password reset failed")
+		return
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		fail(w, 401, "invalid or expired recovery challenge")
+		return
+	}
+	cr, e := a.db.ExecContext(r.Context(),
+		"UPDATE identity.verification_challenges SET consumed_at=now() WHERE id=$1 AND consumed_at IS NULL", in.ChallengeID)
+	if e != nil {
+		fail(w, 500, "recovery challenge consumption failed")
+		return
+	}
+	if n, _ := cr.RowsAffected(); n != 1 {
+		fail(w, 409, "recovery challenge already consumed")
+		return
+	}
+	_, _ = a.db.ExecContext(r.Context(),
+		"UPDATE identity.sessions SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL", userID)
+	send(w, 200, map[string]string{"status": "password_reset"})
+}
+
+// requestEmailVerification creates a single-use email verification challenge for the authenticated user.
+func (a *App) requestEmailVerification(w http.ResponseWriter, r *http.Request) {
+	uid := claims(r).Subject
+	var email string
+	var verified bool
+	if e := a.db.QueryRowContext(r.Context(), "SELECT email,email_verified FROM identity.users WHERE id=$1 AND state='active'", uid).Scan(&email, &verified); e != nil {
+		fail(w, 404, "user not found")
+		return
+	}
+	if verified {
+		send(w, 200, map[string]string{"status": "already_verified"})
+		return
+	}
+	code, e := randomSecret(16)
+	if e != nil {
+		fail(w, 500, "verification code generation failed")
+		return
+	}
+	exp := time.Now().UTC().Add(15 * time.Minute).Format(time.RFC3339)
+	var challengeID string
+	e = a.db.QueryRowContext(r.Context(),
+		"INSERT INTO identity.verification_challenges(user_id,destination,purpose,code_hash,expires_at) VALUES ($1,$2,'email_verification',$3,$4) RETURNING id",
+		uid, email, sha256hex(code), exp).Scan(&challengeID)
+	if e != nil {
+		fail(w, 500, "verification challenge creation failed")
+		return
+	}
+	send(w, 200, map[string]any{
+		"status":            "verification_code_sent",
+		"challenge_id":      challengeID,
+		"verification_code": code, // Remove in production; deliver via email
+	})
+}
+
+// verifyEmail confirms an email verification challenge and marks the user's email as verified.
+func (a *App) verifyEmail(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		ChallengeID string `json:"challenge_id"`
+		Code        string `json:"code"`
+	}
+	if decode(r, &in) != nil || !auth.ValidUUID(in.ChallengeID) || len(in.Code) < 16 {
+		fail(w, 400, "invalid verification request")
+		return
+	}
+	uid := claims(r).Subject
+	var userID, codeHash string
+	var consumed any
+	e := a.db.QueryRowContext(r.Context(),
+		"SELECT user_id,code_hash,consumed_at FROM identity.verification_challenges WHERE id=$1 AND purpose='email_verification' AND expires_at > now()",
+		in.ChallengeID).Scan(&userID, &codeHash, &consumed)
+	if e != nil || userID != uid || consumed != nil || codeHash != sha256hex(in.Code) {
+		fail(w, 401, "invalid or expired verification challenge")
+		return
+	}
+	cr, e := a.db.ExecContext(r.Context(),
+		"UPDATE identity.verification_challenges SET consumed_at=now() WHERE id=$1 AND consumed_at IS NULL", in.ChallengeID)
+	if e != nil {
+		fail(w, 500, "verification challenge consumption failed")
+		return
+	}
+	if n, _ := cr.RowsAffected(); n != 1 {
+		fail(w, 409, "verification challenge already consumed")
+		return
+	}
+	_, e = a.db.ExecContext(r.Context(),
+		"UPDATE identity.users SET email_verified=true,updated_at=now() WHERE id=$1 AND state='active'", uid)
+	if e != nil {
+		fail(w, 500, "email verification failed")
+		return
+	}
+	send(w, 200, map[string]string{"status": "email_verified"})
+}
+func (a *App) deleteAccount(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Password string `json:"password"`
+	}
+	if decode(r, &in) != nil || len(in.Password) == 0 {
+		fail(w, 400, "password required for account deletion")
+		return
+	}
+	uid := claims(r).Subject
+	var hash, state string
+	if e := a.db.QueryRowContext(r.Context(), "SELECT password_hash,state FROM identity.users WHERE id=$1", uid).Scan(&hash, &state); e != nil || state != "active" {
+		fail(w, 404, "user not found")
+		return
+	}
+	if !auth.CheckPassword(in.Password, hash) {
+		fail(w, 401, "password incorrect")
+		return
+	}
+	_, e := a.db.ExecContext(r.Context(), "UPDATE identity.users SET state='deleted',deleted_at=now(),updated_at=now() WHERE id=$1", uid)
+	if e != nil {
+		fail(w, 500, "account deletion failed")
+		return
+	}
+	_, _ = a.db.ExecContext(r.Context(), "UPDATE identity.sessions SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL", uid)
+	send(w, 200, map[string]string{"status": "account_deleted"})
 }

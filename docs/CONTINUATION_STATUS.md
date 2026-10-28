@@ -34,6 +34,15 @@ the Cloudflare runtime or cross-isolate delivery. No deployment was performed.
   production use. This continuation is not a full security audit.
 - Validate the existing Go and Flutter changes in their respective runtimes.
 
+## Continuation: 2026-10-28 — account security hardening
+
+- Added password change, account recovery, and account deletion endpoints with session revocation.
+- Added email verification request/confirm flow and persisted `email_verified`/`phone_verified`.
+- Wired the existing auth rate limiter to registration, login, refresh, recovery, QR and verification routes.
+- Added regression coverage in `identity_account_test.go`.
+- Removed a stale duplicate `apps/user-web/shared/api.ts` so the web app uses the canonical shared client.
+- Validation: `go test ./...`, `npm run build:apps`, and `node --test scripts/cf_worker.test.mjs` passed.
+
 ## Continuation: 2026-10-28 — Keep synchronization
 
 - Notify all sockets belonging to the authenticated owner after Keep saves and

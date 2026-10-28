@@ -39,8 +39,8 @@ func (a *App) isMember(r *http.Request, id string) bool {
 	return err == nil && count > 0
 }
 
-func (a *App) conversationMemberIDs(r *http.Request, conversationID string) []string {
-	rows, e := a.db.QueryContext(r.Context(), "SELECT user_id FROM chat.conversation_members WHERE conversation_id=$1 AND left_at IS NULL", conversationID)
+func (a *App) conversationMemberIDsCtx(ctx context.Context, conversationID string) []string {
+	rows, e := a.db.QueryContext(ctx, "SELECT user_id FROM chat.conversation_members WHERE conversation_id=$1 AND left_at IS NULL", conversationID)
 	if e != nil {
 		return nil
 	}
@@ -53,6 +53,10 @@ func (a *App) conversationMemberIDs(r *http.Request, conversationID string) []st
 		}
 	}
 	return ids
+}
+
+func (a *App) conversationMemberIDs(r *http.Request, conversationID string) []string {
+	return a.conversationMemberIDsCtx(r.Context(), conversationID)
 }
 
 func (a *App) conversations(w http.ResponseWriter, r *http.Request) {
@@ -193,6 +197,8 @@ func (a *App) messages(w http.ResponseWriter, r *http.Request) {
 		var m Message
 		var metaStr string
 		if rows.Scan(&m.ID, &m.ConversationID, &m.SenderID, &m.ClientID, &m.Sequence, &m.Kind, &m.Body, &m.ReplyTo, &metaStr, &m.CreatedAt) == nil {
+			m.Body = a.msgCipher.decrypt(m.Body)
+
 			if metaStr != "" && metaStr != "{}" {
 				_ = json.Unmarshal([]byte(metaStr), &m.Metadata)
 			}
@@ -234,6 +240,8 @@ func (a *App) syncMessages(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var m Message
 		var metaStr string
+			m.Body = a.msgCipher.decrypt(m.Body)
+
 		if rows.Scan(&m.ID, &m.ConversationID, &m.SenderID, &m.ClientID, &m.Sequence, &m.Kind, &m.Body, &m.ReplyTo, &metaStr, &m.CreatedAt) == nil {
 			if metaStr != "" && metaStr != "{}" {
 				_ = json.Unmarshal([]byte(metaStr), &m.Metadata)
@@ -344,10 +352,11 @@ func (a *App) sendMessage(w http.ResponseWriter, r *http.Request) {
 		ReplyTo:        in.ReplyTo,
 		Metadata:       in.Metadata,
 	}
+	encryptedBody := a.msgCipher.encrypt(m.Body)
 	e = tx.QueryRowContext(r.Context(),
 		`INSERT INTO chat.messages(conversation_id,sender_id,client_id,sequence,kind,body,reply_to,metadata,ciphertext)
 		 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id,created_at`,
-		m.ConversationID, m.SenderID, m.ClientID, m.Sequence, m.Kind, m.Body, replyArg, string(metaBytes), cipherBytes).Scan(&m.ID, &m.CreatedAt)
+		m.ConversationID, m.SenderID, m.ClientID, m.Sequence, m.Kind, encryptedBody, replyArg, string(metaBytes), cipherBytes).Scan(&m.ID, &m.CreatedAt)
 	if e != nil {
 		fail(w, 500, "message persistence failed")
 		return
@@ -387,6 +396,15 @@ func (a *App) sendMessage(w http.ResponseWriter, r *http.Request) {
 	}
 	ids := a.conversationMemberIDs(r, id)
 	a.hub.Notify(ids, payload)
+	// Queue push notifications for members other than sender.
+	for _, uid := range ids {
+		if uid == claims(r).Subject {
+			continue
+		}
+		_, _ = a.db.ExecContext(r.Context(),
+			"INSERT INTO realtime.push_queue(user_id,title,body,payload) VALUES($1,$2,$3,$4)",
+			uid, "New message", m.Body, string(payload))
+	}
 	send(w, 201, map[string]any{"message": m, "duplicate": false})
 }
 
@@ -1110,7 +1128,7 @@ func (a *App) listSavedMessages(w http.ResponseWriter, r *http.Request) {
 		var id, cid, body, kind string
 		var at any
 		if rows.Scan(&id, &cid, &body, &kind, &at) == nil {
-			out = append(out, map[string]any{"id": id, "message_id": id, "conversation_id": cid, "body": body, "kind": kind, "created_at": at, "saved_at": at})
+			out = append(out, map[string]any{"id": id, "message_id": id, "conversation_id": cid, "body": a.msgCipher.decrypt(body), "kind": kind, "created_at": at, "saved_at": at})
 		}
 	}
 	send(w, 200, map[string]any{"saved_messages": out})
@@ -1126,18 +1144,69 @@ func (a *App) unifiedSearch(w http.ResponseWriter, r *http.Request) {
 	msgRows, _ := a.db.QueryContext(r.Context(),
 		`SELECT m.id,m.conversation_id,m.body,m.sequence FROM chat.messages m
 		 JOIN chat.conversation_members cm ON cm.conversation_id=m.conversation_id
-		 WHERE cm.user_id=$1 AND cm.left_at IS NULL AND m.deleted_at IS NULL AND m.body ILIKE '%' || $2 || '%'
-		 ORDER BY m.created_at DESC LIMIT 30`, uid, q)
+		 WHERE cm.user_id=$1 AND cm.left_at IS NULL AND m.deleted_at IS NULL
+		 ORDER BY m.created_at DESC LIMIT 500`, uid)
 	msgs := make([]any, 0)
 	if msgRows != nil {
 		for msgRows.Next() {
 			var id, cid, body string
 			var seq int64
 			if msgRows.Scan(&id, &cid, &body, &seq) == nil {
-				msgs = append(msgs, map[string]any{"id": id, "conversation_id": cid, "body": body, "sequence": seq})
+				decrypted := a.msgCipher.decrypt(body)
+				if strings.Contains(strings.ToLower(decrypted), strings.ToLower(q)) {
+					msgs = append(msgs, map[string]any{"id": id, "conversation_id": cid, "body": decrypted, "sequence": seq})
+				}
 			}
 		}
 		msgRows.Close()
 	}
 	send(w, 200, map[string]any{"messages": msgs})
+}
+// runOutboxRelay periodically drains durable delivery outbox rows and notifies local sockets.
+func (a *App) runOutboxRelay(ctx context.Context) {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			a.drainOutbox(ctx)
+		}
+	}
+}
+
+// drainOutbox delivers pending outbox events to connected sockets and records per-instance delivery.
+func (a *App) drainOutbox(ctx context.Context) {
+	rows, err := a.db.QueryContext(ctx,
+		`SELECT o.id, o.conversation_id, o.payload
+		 FROM realtime.delivery_outbox o
+		 LEFT JOIN realtime.outbox_deliveries d ON d.outbox_id=o.id AND d.instance_id=$1
+		 WHERE d.id IS NULL
+		 ORDER BY o.id LIMIT 100`, a.instanceID)
+	if err != nil {
+		return
+	}
+	type pending struct {
+		id      int64
+		convID  string
+		payload []byte
+	}
+	var batch []pending
+	for rows.Next() {
+		var p pending
+		var payload string
+		if err := rows.Scan(&p.id, &p.convID, &payload); err == nil {
+			p.payload = []byte(payload)
+			batch = append(batch, p)
+		}
+	}
+	rows.Close()
+	for _, p := range batch {
+		ids := a.conversationMemberIDsCtx(ctx, p.convID)
+		a.hub.Notify(ids, p.payload)
+		_, _ = a.db.ExecContext(ctx,
+			"INSERT INTO realtime.outbox_deliveries(outbox_id,instance_id) VALUES($1,$2) ON CONFLICT(outbox_id,instance_id) DO NOTHING",
+			p.id, a.instanceID)
+	}
 }

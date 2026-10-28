@@ -1,8 +1,11 @@
 package server
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"image"
+	"image/png"
 	"net/http"
 	"strings"
 
@@ -59,6 +62,11 @@ func (a *App) uploadAttachment(w http.ResponseWriter, r *http.Request) {
 		}
 		msgArg = in.MessageID
 	}
+	thumbnail := ""
+	if strings.HasPrefix(strings.ToLower(in.MimeType), "image/") {
+		thumbnail = makeThumbnail(content)
+	}
+
 	var id string
 	tx, e := a.db.BeginTx(r.Context(), nil)
 	if e != nil {
@@ -67,9 +75,9 @@ func (a *App) uploadAttachment(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 	e = tx.QueryRowContext(r.Context(),
-		`INSERT INTO chat.attachments(message_id,owner_id,object_key,mime_type,original_name,size_bytes,checksum_sha256,encryption_mode,status)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'ready') RETURNING id`,
-		msgArg, claims(r).Subject, objectKey, in.MimeType, in.OriginalName, in.SizeBytes, in.ChecksumSHA256, in.EncryptionMode).Scan(&id)
+		`INSERT INTO chat.attachments(message_id,owner_id,object_key,mime_type,original_name,size_bytes,checksum_sha256,encryption_mode,status,thumbnail_base64)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'ready',$9) RETURNING id`,
+		msgArg, claims(r).Subject, objectKey, in.MimeType, in.OriginalName, in.SizeBytes, in.ChecksumSHA256, in.EncryptionMode, thumbnail).Scan(&id)
 	if e != nil {
 		fail(w, 500, "attachment creation failed")
 		return
@@ -204,6 +212,11 @@ func (a *App) callSignal(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "invalid signal payload")
 		return
 	}
+	// Persist signal for late joiners / reconnection catch-up.
+	_, _ = a.db.ExecContext(r.Context(),
+		"INSERT INTO calling.call_signals(call_id,from_user_id,signal_type,sdp,candidate) VALUES($1,$2,$3,$4,$5)",
+		callID, claims(r).Subject, in.SignalType, in.SDP, in.Candidate)
+
 	payload, _ := json.Marshal(map[string]any{
 		"type":            "call.signal",
 		"call_id":         callID,
@@ -604,4 +617,25 @@ func (a *App) listCommunityPosts(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	send(w, 200, map[string]any{"posts": out})
+}
+// makeThumbnail creates a small 64x64 PNG thumbnail for image content.
+func makeThumbnail(content []byte) string {
+	img, _, err := image.Decode(bytes.NewReader(content))
+	if err != nil {
+		return ""
+	}
+	src := img.Bounds()
+	dst := image.NewRGBA(image.Rect(0, 0, 64, 64))
+	for y := 0; y < 64; y++ {
+		for x := 0; x < 64; x++ {
+			sx := src.Min.X + x*src.Dx()/64
+			sy := src.Min.Y + y*src.Dy()/64
+			dst.Set(x, y, img.At(sx, sy))
+		}
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, dst); err != nil {
+		return ""
+	}
+	return base64.StdEncoding.EncodeToString(buf.Bytes())
 }

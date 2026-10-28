@@ -10,6 +10,16 @@ import {
   type User,
   type LoginResult
 } from '../../shared/api'
+import {
+  startWebRTCCall,
+  endWebRTCCall,
+  generateE2EEKeyPair,
+  deriveSharedSecret,
+  encryptMessage,
+  decryptMessage,
+  queueOfflineMessage,
+  flushOfflineQueue
+} from './messenger-utils'
 
 // --- Auth & Session State ---
 const email = ref('')
