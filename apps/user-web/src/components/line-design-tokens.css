@@ -1,0 +1,786 @@
+/* ==========================================================================
+   LINE Design System — Design Tokens
+   ========================================================================== */
+
+/* --- LINE Brand Colors --- */
+:root {
+  /* Primary Brand */
+  --line-green: #00C300;
+  --line-green-hover: #00A800;
+  --line-green-light: rgba(0, 195, 0, 0.1);
+  --line-green-lighter: rgba(0, 195, 0, 0.05);
+  --line-green-text: #00A800;
+
+  /* Backgrounds */
+  --line-bg-primary: #FFFFFF;
+  --line-bg-secondary: #F7F8F9;
+  --line-bg-tertiary: #E4E4E4;
+  --line-bg-chat: #F7F8F9;
+  --line-bg-panel: #FFFFFF;
+  --line-bg-header: #FFFFFF;
+
+  /* Text */
+  --line-text-primary: #111111;
+  --line-text-secondary: #8E8E8E;
+  --line-text-muted: #BDBDBD;
+  --line-text-inverse: #FFFFFF;
+  --line-text-link: #00C300;
+
+  /* Borders & Dividers */
+  --line-border: #E4E4E4;
+  --line-border-light: #F2F2F2;
+  --line-border-dark: #DADADA;
+  --line-divider: #F2F2F2;
+
+  /* Chat Bubbles */
+  --line-bubble-mine: #DCFFD4;
+  --line-bubble-mine-text: #111111;
+  --line-bubble-other: #FFFFFF;
+  --line-bubble-other-text: #111111;
+  --line-bubble-system: #F7F8F9;
+
+  /* States */
+  --line-success: #00C300;
+  --line-warning: #FFB700;
+  --line-error: #FF3B30;
+  --line-info: #00C300;
+
+  /* Typography */
+  --line-font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', 'Nanum Gothic', 'Malgun Gothic', sans-serif;
+  --line-font-size-xs: 11px;
+  --line-font-size-sm: 12px;
+  --line-font-size-base: 14px;
+  --line-font-size-lg: 16px;
+  --line-font-size-xl: 18px;
+  --line-font-size-2xl: 20px;
+  --line-font-weight-normal: 400;
+  --line-font-weight-medium: 500;
+  --line-font-weight-bold: 700;
+  --line-line-height-tight: 1.2;
+  --line-line-height-normal: 1.5;
+  --line-line-height-relaxed: 1.75;
+
+  /* Spacing */
+  --line-space-1: 4px;
+  --line-space-2: 8px;
+  --line-space-3: 12px;
+  --line-space-4: 16px;
+  --line-space-5: 20px;
+  --line-space-6: 24px;
+  --line-space-8: 32px;
+
+  /* Border Radius */
+  --line-radius-sm: 6px;
+  --line-radius-md: 8px;
+  --line-radius-lg: 12px;
+  --line-radius-xl: 16px;
+  --line-radius-full: 9999px;
+  --line-radius-bubble: 18px;
+
+  /* Shadows */
+  --line-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --line-shadow-md: 0 4px 6px rgba(0, 0, 0, 0.07);
+  --line-shadow-lg: 0 20px 60px rgba(0, 0, 0, 0.15);
+  --line-shadow-bubble: 0 1px 2px rgba(0, 0, 0, 0.08);
+
+  /* Z-index */
+  --line-z-dropdown: 100;
+  --line-z-modal: 1000;
+  --line-z-toast: 2000;
+  --line-z-call: 2000;
+
+  /* Transitions */
+  --line-transition-fast: 0.15s ease;
+  --line-transition-normal: 0.25s ease;
+  --line-transition-slow: 0.35s ease;
+}
+
+/* --- Dark Mode Tokens --- */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --line-bg-primary: #1A1A1A;
+    --line-bg-secondary: #2A2A2A;
+    --line-bg-tertiary: #3A3A3A;
+    --line-bg-chat: #2A2A2A;
+    --line-bg-panel: #2A2A2A;
+    --line-bg-header: #1A1A1A;
+    --line-text-primary: #FFFFFF;
+    --line-text-secondary: #BDBDBD;
+    --line-text-muted: #8E8E8E;
+    --line-text-inverse: #111111;
+    --line-border: #3A3A3A;
+    --line-border-light: #2A2A2A;
+    --line-border-dark: #4A4A4A;
+    --line-divider: #2A2A2A;
+    --line-bubble-mine: #00C300;
+    --line-bubble-mine-text: #FFFFFF;
+    --line-bubble-other: #3A3A3A;
+    --line-bubble-other-text: #FFFFFF;
+    --line-bubble-system: #2A2A2A;
+    --line-shadow-lg: 0 20px 60px rgba(0, 0, 0, 0.4);
+  }
+}
+
+/* ==========================================================================
+   LINE Base Reset & Typography
+   ========================================================================== */
+* {
+  box-sizing: border-box;
+}
+
+html, body, #app {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  font-family: var(--line-font-family);
+  font-size: var(--line-font-size-base);
+  line-height: var(--line-line-height-normal);
+  color: var(--line-text-primary);
+  background-color: var(--line-bg-primary);
+  -webkit-tap-highlight-color: transparent;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: var(--line-text-link);
+  text-decoration: none;
+}
+
+button {
+  font-family: inherit;
+  font-size: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+  color: inherit;
+}
+
+input, textarea, select {
+  font-family: inherit;
+  font-size: inherit;
+}
+
+ul, ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* ==========================================================================
+   LINE Layout Utilities
+   ========================================================================== */
+.line-app {
+  display: flex;
+  flex-direction: column;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background-color: var(--line-bg-primary);
+}
+
+.line-header {
+  height: 52px;
+  background-color: var(--line-bg-header);
+  border-bottom: 1px solid var(--line-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--line-space-3);
+  z-index: 200;
+  position: relative;
+}
+
+.line-header-title {
+  font-size: var(--line-font-size-lg);
+  font-weight: var(--line-font-weight-bold);
+  color: var(--line-text-primary);
+}
+
+.line-header-actions {
+  display: flex;
+  gap: var(--line-space-2);
+}
+
+.line-content {
+  flex: 1;
+  overflow-y: auto;
+  background-color: var(--line-bg-chat);
+  -webkit-overflow-scrolling: touch;
+}
+
+.bottom-nav {
+  display: flex;
+  height: 60px;
+  background-color: var(--line-bg-panel);
+  border-top: 1px solid var(--line-border);
+  justify-content: space-around;
+  align-items: center;
+  z-index: 300;
+  position: relative;
+}
+
+.bottom-nav-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--line-space-1);
+  padding: var(--line-space-1) var(--line-space-2);
+  color: var(--line-text-muted);
+  font-size: var(--line-font-size-xs);
+  font-weight: var(--line-font-weight-medium);
+  min-width: 60px;
+  transition: color var(--line-transition-fast);
+}
+
+.bottom-nav-item.active {
+  color: var(--line-green);
+}
+
+.bottom-nav-item svg,
+.bottom-nav-item .nav-icon {
+  width: 24px;
+  height: 24px;
+}
+
+.bottom-nav-item .nav-badge {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 8px;
+  height: 8px;
+  background-color: var(--line-error);
+  border-radius: var(--line-radius-full);
+}
+
+/* ==========================================================================
+   LINE Components — Buttons
+   ========================================================================== */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 40px;
+  padding: 0 var(--line-space-4);
+  border-radius: var(--line-radius-full);
+  font-size: var(--line-font-size-base);
+  font-weight: var(--line-font-weight-medium);
+  transition: all var(--line-transition-fast);
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.btn-primary {
+  background-color: var(--line-green);
+  color: var(--line-text-inverse);
+}
+
+.btn-primary:hover {
+  background-color: var(--line-green-hover);
+}
+
+.btn-secondary {
+  background-color: var(--line-bg-tertiary);
+  color: var(--line-text-primary);
+}
+
+.btn-outline {
+  border-color: var(--line-border);
+  color: var(--line-text-primary);
+  background-color: var(--line-bg-primary);
+}
+
+.btn-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--line-radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--line-text-secondary);
+  transition: all var(--line-transition-fast);
+}
+
+.btn-icon:hover {
+  background-color: var(--line-bg-tertiary);
+  color: var(--line-text-primary);
+}
+
+.btn-icon.active {
+  color: var(--line-green);
+  background-color: var(--line-green-lighter);
+}
+
+/* ==========================================================================
+   LINE Components — Input
+   ========================================================================== */
+.input {
+  width: 100%;
+  height: 40px;
+  padding: 0 var(--line-space-3);
+  border: 1px solid var(--line-border);
+  border-radius: var(--line-radius-full);
+  background-color: var(--line-bg-primary);
+  color: var(--line-text-primary);
+  font-size: var(--line-font-size-base);
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--line-green);
+}
+
+.input-group {
+  display: flex;
+  align-items: center;
+  gap: var(--line-space-2);
+  border: 1px solid var(--line-border);
+  border-radius: var(--line-radius-full);
+  background-color: var(--line-bg-primary);
+  padding: 0 var(--line-space-2);
+}
+
+.input-group input {
+  border: none;
+  outline: none;
+  flex: 1;
+  height: 36px;
+  font-size: var(--line-font-size-base);
+  color: var(--line-text-primary);
+}
+
+/* ==========================================================================
+   LINE Components — Avatar
+   ========================================================================== */
+.avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--line-radius-full);
+  background-color: var(--line-green);
+  color: var(--line-text-inverse);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: var(--line-font-weight-bold);
+  font-size: var(--line-font-size-sm);
+  overflow: hidden;
+  position: relative;
+}
+
+.avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.avatar.online::after {
+  content: '';
+  position: absolute;
+  bottom: 2px;
+  right: 2px;
+  width: 8px;
+  height: 8px;
+  background-color: var(--line-green);
+  border: 2px solid var(--line-bg-primary);
+  border-radius: var(--line-radius-full);
+}
+
+.avatar-sm { width: 28px; height: 28px; font-size: var(--line-font-size-xs); }
+.avatar-lg { width: 48px; height: 48px; font-size: var(--line-font-size-base); }
+.avatar-xl { width: 80px; height: 80px; font-size: var(--line-font-size-lg); }
+
+/* ==========================================================================
+   LINE Components — Chat Bubble
+   ========================================================================== */
+.chat-bubble {
+  max-width: 70%;
+  padding: 8px 12px;
+  border-radius: var(--line-radius-bubble);
+  font-size: var(--line-font-size-base);
+  line-height: var(--line-line-height-normal);
+  word-break: break-word;
+  position: relative;
+  margin-bottom: var(--line-space-2);
+  animation: bubbleAppear var(--line-transition-normal);
+}
+
+.chat-bubble.mine {
+  background-color: var(--line-bubble-mine);
+  color: var(--line-bubble-mine-text);
+  border-bottom-right-radius: 4px;
+  margin-left: auto;
+  align-self: flex-end;
+}
+
+.chat-bubble.other {
+  background-color: var(--line-bubble-other);
+  color: var(--line-bubble-other-text);
+  border-bottom-left-radius: 4px;
+  box-shadow: var(--line-shadow-bubble);
+  margin-right: auto;
+  align-self: flex-start;
+}
+
+.chat-bubble.system {
+  background-color: var(--line-bubble-system);
+  color: var(--line-text-muted);
+  font-size: var(--line-font-size-xs);
+  border-radius: var(--line-radius-md);
+  margin: 0 auto var(--line-space-2) auto;
+  text-align: center;
+}
+
+@keyframes bubbleAppear {
+  0% { opacity: 0; transform: translateY(10px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+.chat-time {
+  font-size: var(--line-font-size-xs);
+  color: var(--line-text-muted);
+  margin-top: 4px;
+}
+
+.chat-time.mine {
+  text-align: right;
+}
+
+.chat-time.other {
+  text-align: left;
+}
+
+.read-status {
+  font-size: var(--line-font-size-xs);
+  color: var(--line-text-muted);
+  margin-left: 4px;
+}
+
+.read-status.read {
+  color: var(--line-green);
+}
+
+/* ==========================================================================
+   LINE Components — Message List & Composer
+   ========================================================================== */
+.message-list {
+  padding: var(--line-space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--line-space-2);
+}
+
+.message-bubble-container {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.message-bubble-container.mine {
+  align-items: flex-end;
+}
+
+.message-bubble-container.other {
+  align-items: flex-start;
+}
+
+.message-composer {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--line-space-2);
+  padding: var(--line-space-2);
+  background-color: var(--line-bg-panel);
+  border-top: 1px solid var(--line-border);
+}
+
+.composer-input {
+  flex: 1;
+  height: 40px;
+  padding: 0 var(--line-space-4);
+  border: 1px solid var(--line-border);
+  border-radius: var(--line-radius-full);
+  background-color: var(--line-bg-primary);
+  font-size: var(--line-font-size-base);
+  color: var(--line-text-primary);
+  outline: none;
+}
+
+.composer-input:focus {
+  border-color: var(--line-green);
+}
+
+.composer-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--line-radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--line-text-secondary);
+}
+
+.composer-btn.active {
+  color: var(--line-green);
+  background-color: var(--line-green-lighter);
+}
+
+/* ==========================================================================
+   LINE Components — Modal & Toast
+   ========================================================================== */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: var(--line-z-modal);
+  animation: fadeIn var(--line-transition-fast);
+}
+
+.modal-content {
+  background: var(--line-bg-panel);
+  border-radius: var(--line-radius-xl);
+  padding: var(--line-space-6);
+  max-width: 90vw;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: var(--line-shadow-lg);
+  animation: slideUp var(--line-transition-normal);
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.toast {
+  position: fixed;
+  bottom: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1f2937;
+  color: white;
+  padding: 12px 20px;
+  border-radius: var(--line-radius-md);
+  font-size: var(--line-font-size-sm);
+  z-index: var(--line-z-toast);
+  animation: toastIn 0.3s ease, toastOut 0.3s ease 2.7s;
+  box-shadow: var(--line-shadow-lg);
+}
+
+@keyframes toastIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(20px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+@keyframes toastOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+/* ==========================================================================
+   LINE Components — Badge, Story Ring, Divider
+   ========================================================================== */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: var(--line-radius-full);
+  font-size: var(--line-font-size-xs);
+  font-weight: var(--line-font-weight-bold);
+  background-color: var(--line-green);
+  color: var(--line-text-inverse);
+}
+
+.badge-gray {
+  background-color: var(--line-bg-tertiary);
+  color: var(--line-text-muted);
+}
+
+.story-ring {
+  width: 64px;
+  height: 64px;
+  border-radius: var(--line-radius-full);
+  border: 3px solid var(--line-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--line-font-size-base);
+  font-weight: var(--line-font-weight-bold);
+  color: var(--line-text-primary);
+  background-color: var(--line-bg-primary);
+}
+
+.story-ring.viewed {
+  border-color: var(--line-text-muted);
+}
+
+.story-ring.new {
+  border-color: var(--line-green);
+  box-shadow: 0 0 0 4px var(--line-green);
+}
+
+.story-ring.plus {
+  border-color: var(--line-green);
+  background-color: var(--line-green);
+  color: var(--line-text-inverse);
+}
+
+.divider {
+  height: 1px;
+  background-color: var(--line-divider);
+  margin: var(--line-space-4) 0;
+}
+
+.divider-text {
+  display: flex;
+  align-items: center;
+  text-align: center;
+  color: var(--line-text-muted);
+  font-size: var(--line-font-size-xs);
+  margin: var(--line-space-4) 0;
+}
+
+.divider-text::before,
+.divider-text::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background-color: var(--line-divider);
+}
+
+.divider-text span {
+  padding: 0 var(--line-space-3);
+}
+
+/* ==========================================================================
+   LINE Components — List Item
+   ========================================================================== */
+.list-item {
+  display: flex;
+  align-items: center;
+  padding: var(--line-space-3);
+  gap: var(--line-space-3);
+  cursor: pointer;
+  transition: background-color var(--line-transition-fast);
+}
+
+.list-item:hover {
+  background-color: var(--line-bg-secondary);
+}
+
+.list-item.selected {
+  background-color: var(--line-green-lighter);
+}
+
+.list-item-avatar {
+  flex-shrink: 0;
+}
+
+.list-item-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.list-item-title {
+  font-size: var(--line-font-size-base);
+  font-weight: var(--line-font-weight-medium);
+  color: var(--line-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.list-item-subtitle {
+  font-size: var(--line-font-size-sm);
+  color: var(--line-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ==========================================================================
+   LINE Components — Skeleton, Spinner, Scrollbar
+   ========================================================================== */
+.skeleton {
+  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 4px;
+}
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.spinner {
+  width: 24px;
+  height: 24px;
+  border: 3px solid var(--line-border);
+  border-top-color: var(--line-green);
+  border-radius: var(--line-radius-full);
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* ==========================================================================
+   LINE Components — Focus, Selection, Responsive
+   ========================================================================== */
+:focus-visible {
+  outline: 2px solid var(--line-green);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+::selection {
+  background: var(--line-green-light);
+  color: var(--line-text-primary);
+}
+
+@media (max-width: 768px) {
+  .chat-bubble {
+    max-width: 85%;
+  }
+}
+
+@media (max-width: 480px) {
+  .chat-bubble {
+    max-width: 90%;
+    font-size: 13px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
